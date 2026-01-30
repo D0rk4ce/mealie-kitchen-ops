@@ -1,0 +1,19 @@
+# Secrets
+.env
+*.creds
+
+# Python garbage
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.pytest_cache/
+
+# Runtime data
+data/
+parse_history.json
+*.log
+*.sql
+
+# Tools
+*_readme.py
