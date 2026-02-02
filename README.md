@@ -8,7 +8,7 @@ KitchenOps is a production-ready set of maintenance tools for [Mealie](https://m
 ### 1. Auto-Tagger (`kitchen_ops_tagger.py`)
 **"The Organizer"**
 A dual-engine tool that scans your database and applies intelligent tags. It supports both **SQLite** (Default) and **PostgreSQL**.
-* **World Fingerprints:** Detects 30+ cuisines based on ingredient signatures (e.g., *Kerala/Coastal*, *Sichuan*, *Tex-Mex*).
+* **World Fingerprints:** Detects 30+ cuisines based on ingredient signatures (e.g., *Italian*, *Chinese (Sichuan)*, *Tex-Mex*).
 * **Phase Analysis:** Sorts cheeses, proteins, and diets (Keto/Vegan).
 * **Equipment Scan:** Finds Air Fryers, Sous Vides, etc., in instructions.
 
