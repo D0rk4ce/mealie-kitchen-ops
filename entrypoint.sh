@@ -2,9 +2,23 @@
 
 # Default to Tagger if not specified
 SCRIPT=${SCRIPT_TO_RUN:-tagger}
+DATABASE=${DB_TYPE:-sqlite}
 
 echo "--- KITCHENOPS LAUNCHER ---"
-echo "Target: $SCRIPT"
+echo "Mode: $SCRIPT | DB: $DATABASE"
+
+# SAFETY LOCK: Prevent SQLite tagging on a live DB
+if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]); then
+    echo "❗ SAFETY ALERT: SQLite detected."
+    echo "The Tagger requires a direct database lock and cannot run on a live Mealie instance."
+    echo "Please ensure you have STOPPED your Mealie container before proceeding."
+    echo ""
+    read -p "Have you stopped Mealie? (y/N): " confirmed
+    if [ "$confirmed" != "y" ] && [ "$confirmed" != "Y" ]; then
+        echo "❌ Operation cancelled by user. Prevented potential corruption."
+        exit 1
+    fi
+fi
 
 case "$SCRIPT" in
   "tagger")
