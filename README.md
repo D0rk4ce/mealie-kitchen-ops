@@ -77,14 +77,16 @@ The suite is configured via a single .env file.
 
 ---
 
-## 📦 Installation
+## 📦 Installation & Usage
 
-1. Clone the repo: git clone https://github.com/d0rk4ce/kitchen-ops.git
-2. Configure: cp .env.example .env && nano .env
-3. Run: docker compose run --rm kitchen-ops
+You can run KitchenOps directly via Docker without needing to clone the repository. [cite: 2025-12-30]
+
+1. **Prepare your environment:** Create a .env file in your local directory (see Configuration above).
+2. **Pull the latest image:** docker pull ghcr.io/d0rk4ce/kitchen-ops:latest
+3. **Run the suite:** docker run --rm --env-file .env ghcr.io/d0rk4ce/kitchen-ops:latest
 
 > [!IMPORTANT]
-> If running SCRIPT_TO_RUN=all, the Parser and Cleaner will execute while the Mealie UI is down (SQLite only). For maximum WAF, run tagger individually, then restart Mealie and run the others.
+> **WAF Optimization (SQLite Only):** If running SCRIPT_TO_RUN=all, the Parser and Cleaner will execute while the Mealie UI is down. For maximum "Wife Approval Factor," use the **Sandwich Command** to run the tagger individually, then restart Mealie and run the parser and cleaner while the UI is live.
 
 ## 📄 License
 MIT License.
