@@ -2,13 +2,8 @@ services:
   kitchen-ops:
     build: .
     container_name: kitchen_ops
-    environment:
-      - DB_TYPE=sqlite
-      - MEALIE_URL=http://192.168.1.100:9000
-      - MEALIE_API_TOKEN=change_me
-      - DRY_RUN=true
-      # Cleaner Settings
-      - CLEANER_WORKERS=2
+    env_file: .env
+    # The volumes below are examples. Users must update them to match their setup.
     volumes:
-      - /path/to/your/mealie/data:/app/data
+      - ./data:/app/data  # For SQLite users: Mount the folder containing mealie.db
     restart: no

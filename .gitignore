@@ -15,5 +15,6 @@ parse_history.json
 *.log
 *.sql
 
-# Tools
+# Tools & Dev
 *_readme.py
+docker-compose.sandbox.yml
