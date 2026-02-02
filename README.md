@@ -37,7 +37,7 @@ Scans for "junk" content and broken imports.
 ### 📂 SQLite Instructions (The "Sandwich" Command)
 Because SQLite locks the database file, you cannot run the Tagger while Mealie is writing to it. Use this one-liner to briefly stop Mealie, tag your library, and restart it:
 
-`bash
+`
 docker compose stop mealie && docker compose run --rm kitchen-ops && docker compose start mealie # Replace 'mealie' with your actual container name
 `
 
@@ -62,19 +62,19 @@ The suite is configured via a single `.env` file.
 ### Method 1: Docker Compose (Recommended)
 
 1. **Clone the repo:**
-   `bash
+   `
    git clone https://github.com/d0rk4ce/kitchen-ops.git
    cd kitchen-ops
    `
 
 2. **Configure:**
-   `bash
+   `
    cp .env.example .env
    nano .env
    `
 
 3. **Run:**
-   `bash
+   `
    docker compose run --rm kitchen-ops
    `
 
