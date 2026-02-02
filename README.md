@@ -39,18 +39,20 @@ KitchenOps uses two different methods to interact with your data. The **Parser**
 
 The safest way to run a tagger pass is to "sandwich" the command:
 
-docker stop mealie && docker run --rm kitchen-ops && docker start mealie
-
+>```bash
+> # Replace 'mealie' with your actual container name if different
+>docker stop mealie && docker run --rm kitchen-ops && docker start mealie
+> ```
 ---
 
 ### 🐘 Postgres Credentials
 
 > [!TIP] 
 > **Where are my passwords?**
-> * **Standard Install:** Check your docker-compose.yml or .env file for POSTGRES_PASSWORD.
-> * **Community Script Install:** Look for a mealie.creds file. In many production environments, this is located at:
->    * /root/mealie.creds (Root-level script installs)
->    * ~/mealie/mealie.creds (Standard home directory)
+> * **Standard Install:** Check your `docker-compose.yml` or `.env` file for `POSTGRES_PASSWORD` or `DB_PASSWORD`.
+> * **Community Script Install:** Look for a `mealie.creds` file. In many production environments, this is located at:
+>    * `/root/mealie.creds` (Root-level script installs)
+>    * `~/mealie/mealie.creds` (Standard home directory)
 
 **Note:** The Tagger needs these to "handshake" with your database while Mealie is running. Unlike SQLite, you **do not** need to stop your containers for Postgres! 🚀
 
