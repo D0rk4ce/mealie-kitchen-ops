@@ -55,7 +55,7 @@ The suite is configured via a single `.env` file.
 | :--- | :--- | :--- |
 | `DRY_RUN` | `true` | Set to `false` to apply changes. |
 | `SCRIPT_TO_RUN` | `tagger` | Choose `tagger`, `parser`, `cleaner`, or `all`. |
-| `MEALIE_URL` | - | Your Mealie address (e.g., `[http://192.168.1.50:9000](http://192.168.1.50:9000)`). |
+| `MEALIE_URL` | - | Your Mealie address (e.g., `http://192.168.1.50:9000`). |
 | `MEALIE_API_TOKEN` | - | Long-lived API token from User Profile. |
 | `DB_TYPE` | `sqlite` | Switch to `postgres` for advanced setups. |
 | **Postgres Settings** | | *(Only required if DB_TYPE=postgres)* |
@@ -69,11 +69,9 @@ The suite is configured via a single `.env` file.
 
 ## 📦 Installation
 
-### Method 1: Docker Compose (Recommended)
-
 1. **Clone the repo:**
    ```bash
-   git clone [https://github.com/d0rk4ce/kitchen-ops.git](https://github.com/d0rk4ce/kitchen-ops.git)
+   git clone https://github.com/d0rk4ce/kitchen-ops.git
    cd kitchen-ops
    ```
 
