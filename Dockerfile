@@ -1,6 +1,7 @@
 # Use a lightweight Python base (Alpine Linux)
 FROM python:3.11-alpine
 
+LABEL org.opencontainers.image.source="https://github.com/D0rk4ce/kitchen-ops"
 # --- SYSTEM DEPENDENCIES ---
 # We install BOTH clients so this image is "Universal".
 # Users can switch between SQLite and Postgres via .env without rebuilding.
