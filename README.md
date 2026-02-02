@@ -38,8 +38,7 @@ Scans for "junk" content and broken imports.
 Because SQLite locks the database file, you cannot run the Tagger while Mealie is writing to it. Use this one-liner to briefly stop Mealie, tag your library, and restart it:
 
 `bash
-# Replace 'mealie' with your actual container name
-docker compose stop mealie && docker compose run --rm kitchen-ops && docker compose start mealie
+docker compose stop mealie && docker compose run --rm kitchen-ops && docker compose start mealie # Replace 'mealie' with your actual container name
 `
 
 ---
