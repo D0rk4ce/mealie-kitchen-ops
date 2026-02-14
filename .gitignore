@@ -1,7 +1,7 @@
 # Secrets
 .env
 *.creds
-.env:*
+.env:Zone.Identifier
 
 # Python garbage
 __pycache__/
@@ -19,3 +19,5 @@ parse_history.json
 # Tools & Dev
 *_readme.py
 docker-compose.sandbox.yml
+tests/
+.pytest_cache/
