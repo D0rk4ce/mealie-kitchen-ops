@@ -22,7 +22,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "  MEALIE_URL             Your Mealie instance URL"
     echo "  MEALIE_API_TOKEN       API token from Mealie User Profile"
     echo ""
-    echo "For the full list, see: https://github.com/D0rk4ce/kitchen-ops"
+    echo "For the full list, see: https://github.com/D0rk4ce/mealie-kitchen-ops"
     exit 0
 fi
 
