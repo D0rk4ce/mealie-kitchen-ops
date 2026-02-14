@@ -16,8 +16,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy Scripts & Launcher
+# Copy Scripts, Config & Launcher
 COPY kitchen_ops_*.py .
+COPY config/ config/
 COPY entrypoint.sh .
 RUN chmod +x entrypoint.sh
 

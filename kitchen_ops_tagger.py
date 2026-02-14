@@ -8,7 +8,6 @@ from rich.table import Table
 from rich.progress import track
 
 # Rich Console Setup
-custom_theme = None 
 from rich.theme import Theme
 custom_theme = Theme({
     "info": "cyan",
@@ -244,9 +243,6 @@ def main() -> None:
             console.print("[error]Group ID not found. DB empty or connection failed.[/error]")
             return
         
-        with console.status("[bold green]Working...[/bold green]", spinner="dots"):
-             # Just a tiny pause to show off the spinner
-             pass
 
         phase_1_cheese(db, gid)
         phase_2_protein(db, gid)

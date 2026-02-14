@@ -90,10 +90,12 @@ def prime_cache() -> None:
         while True:
             try:
                 r = session.get(f"{MEALIE_URL}/api/units?page={page}&perPage=2000", timeout=10)
-                if r.status_code != 200 or not r.json().get("items"):
+                data = r.json() if r.status_code == 200 else {}
+                items = data.get("items", [])
+                if not items:
                     break
                 with CACHE_LOCK:
-                    for item in r.json().get("items", []):
+                    for item in items:
                         UNIT_CACHE[item["name"].lower().strip()] = item["id"]
                         if item.get("pluralName"):
                             UNIT_CACHE[item["pluralName"].lower().strip()] = item["id"]
@@ -106,10 +108,12 @@ def prime_cache() -> None:
         while True:
             try:
                 r = session.get(f"{MEALIE_URL}/api/foods?page={page}&perPage=2000", timeout=10)
-                if r.status_code != 200 or not r.json().get("items"):
+                data = r.json() if r.status_code == 200 else {}
+                items = data.get("items", [])
+                if not items:
                     break
                 with CACHE_LOCK:
-                    for item in r.json().get("items", []):
+                    for item in items:
                         FOOD_CACHE[item["name"].lower().strip()] = item["id"]
                 page += 1
             except requests.RequestException:

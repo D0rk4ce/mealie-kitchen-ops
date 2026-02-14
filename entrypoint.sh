@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Default to Tagger if not specified
+# Default to Parser if not specified
 SCRIPT=${SCRIPT_TO_RUN:-parser}
 DATABASE=${DB_TYPE:-sqlite}
 VERSION="1.0.0"

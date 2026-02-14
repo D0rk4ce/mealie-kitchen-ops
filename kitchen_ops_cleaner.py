@@ -96,7 +96,6 @@ def get_recipes() -> list[dict]:
 
 def delete_recipe(slug: str, name: str, reason: str, url: Optional[str] = None) -> None:
     if DRY_RUN:
-        # console.print(f"[dim]DRY RUN: Would delete '{name}' ({reason})[/dim]")
         return
     headers = {"Authorization": f"Bearer {MEALIE_API_TOKEN}"}
     try:

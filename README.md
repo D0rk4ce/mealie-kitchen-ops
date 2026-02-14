@@ -35,7 +35,7 @@ KitchenOps is configured via environment variables (for connection details) and 
 | `MEALIE_URL` | - | Your Mealie instance URL (e.g. `http://PLACEHOLDER_MEALIE_IP:9000`). |
 | `MEALIE_API_TOKEN` | - | API token from Mealie → User Profile → API Tokens. |
 | `DRY_RUN` | `true` | Set to `false` to apply changes. |
-| `SCRIPT_TO_RUN` | `parser` | Entrypoint | Choose `tagger`, `parser`, `cleaner`, or `all`. |
+| `SCRIPT_TO_RUN` | `parser` | Choose `tagger`, `parser`, `cleaner`, or `all`. |
 | `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
 | `PARSER_WORKERS` | `2` | Number of concurrent parsing threads. |
 | `CLEANER_WORKERS` | `2` | Number of concurrent integrity-check threads. |
