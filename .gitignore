@@ -1,6 +1,7 @@
 # Secrets
 .env
 *.creds
+.env:*
 
 # Python garbage
 __pycache__/

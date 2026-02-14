@@ -1,0 +1,89 @@
+# ==========================================
+# KitchenOps — Tagging Rules (YAML)
+# ==========================================
+# Define your tagging logic here. Regex patterns are automatically wrapped
+# in word boundaries (\y or \b) by the tagger, so "ham" won't match "hamburger".
+
+cheese_types:
+  "Blue & Funky": "gorgonzola|roquefort|stilton|blue cheese|taleggio|danablu"
+  "Fresh & Curd": "paneer|chenna|khoya|feta|halloumi|cotija|queso fresco|cheese curds"
+  "Melting Cheese": "provolone|fontina|monterey jack|muenster|gouda|swiss|raclette|havarti|edam|jarlsberg"
+  "Sharp & Aged": "cheddar|parmesan|pecorino|manchego|asiago|gruyere|comte|aged gouda"
+  "Soft & Creamy": "mozzarella|burrata|ricotta|brie|camembert|goat cheese|chèvre|cream cheese|mascarpone|neufchatel"
+
+protein_tags:
+  "Beef":
+    regex: "beef|steak|hamburger|ground beef|ribeye|sirloin|brisket|chuck roast|filet mignon|short rib|flank steak|ground meat"
+    exclude: "broth|stock|bouillon|beef leaf"
+  "Chicken":
+    regex: "chicken|chicken wing|drumstick|chicken thigh|chicken breast|poultry|cornish hen"
+    exclude: "broth|stock|bouillon|chickpea"
+  "Game Meat":
+    regex: "venison|duck|bison|rabbit|quail|goose|elk|pheasant"
+    exclude: "sauce|duck sauce"
+  "Lamb/Goat":
+    regex: "lamb|mutton|goat cheese|gyro|merguez"
+    exclude: "goat cheese|lettuce"
+  "Pork":
+    regex: "pork|bacon|ham hock|ham steak|sausage|pork tenderloin|chorizo|prosciutto|pancetta|guanciale|salami|pork belly|pork chop|pork loin|spare rib|pork shoulder"
+    exclude: "turkey|chicken|hamburger"
+  "Seafood":
+    regex: "shrimp|salmon|tuna|cod fish|cod fillet|lobster|scallop|mussel|clam|fish|prawn|crab|squid|octopus|anchovy|sardine|tilapia|mahi mahi|halibut|swordfish|trout"
+    exclude: "sauce|stock|fish sauce"
+  "Vegetarian Protein":
+    regex: "tofu|tempeh|seitan|lentil|chickpea|black bean|kidney bean|cannellini|edamame|soy curl"
+    exclude: "pork|beef|chicken"
+
+cuisine_fingerprints:
+  # Threshold: 2 matches required
+  "Brazilian": "dende oil|cassava flour|farofa|cachaca|guarana|tucupi|pao de queijo"
+  "British / Irish": "malt vinegar|english mustard|worcestershire|stilton|golden syrup|stout|guinness|clotted cream|marmite"
+  "Caribbean": "scotch bonnet|jerk seasoning|jerk|plantain|callaloo|allspice|ackee|sorrel"
+  "Chinese (Cantonese)": "oyster sauce|hoisin|shaoxing|char siu|lap cheong|wonton|five spice"
+  "Chinese (Sichuan)": "sichuan pepper|doubanjiang|chili oil|mala|dried chili|black vinegar|facing heaven pepper"
+  "East African (Ethiopian)": "berbere|niter kibbeh|injera|teff|mitmita|awaze"
+  "Eastern European": "pierogi|kielbasa|sauerkraut|poppy seed|borscht|kvass"
+  "Filipino": "calamansi|cane vinegar|banana ketchup|ube|bagoong|lumpia|adobo"
+  "French": "herbes de provence|dijon|tarragon|cognac|gruyere|creme fraiche|bouquet garni|fleur de sel"
+  "German": "sauerkraut|bratwurst|caraway|schnitzel|spaetzle|pretzel|juniper berry"
+  "Greek": "feta|kalamata|phyllo|halloumi|tzatziki|oregano|greek yogurt"
+  "Indian": "garam masala|paneer|ghee|fenugreek|makhani|tandoori|kashmiri chili|amchur|curry leaf|mustard seed|asafoetida|hing|sambar|rasam|urad dal|appam|puttu"
+  "Indonesian / Malaysian": "kecap manis|galangal|sambal|shrimp paste|kaffir lime|turmeric leaf|rendang|nasi"
+  "Italian": "pecorino|parmesan|risotto|polenta|balsamic|prosciutto|gorgonzola|truffle|pancetta|nduja|focaccia|pesto"
+  "Japanese": "miso|mirin|dashi|sake|nori|wasabi|furikake|panko|bonito|kombu|shoyu|katsu"
+  "Korean": "gochujang|gochugaru|kimchi|doenjang|rice cake|perilla leaf|bulgogi|japchae"
+  "Levantine (Middle Eastern)": "tahini|za''atar|sumac|bulgur|pomegranate molasses|halva|labneh|freekeh"
+  "Mexican": "corn tortilla|masa|tomatillo|poblano|cotija|epazote|pepita|mole|queso fresco|guajillo|ancho chili"
+  "North African (Maghreb)": "preserved lemon|ras el hanout|tagine|harissa|merguez|chermoula"
+  "Pakistani": "nihari|karahi|shan masala|chapli|haleem|biryani masala"
+  "Persian (Iranian)": "rose water|barberry|dried lime|pomegranate molasses|tahdig|saffron|zereshk"
+  "Peruvian": "aji amarillo|aji panca|quinoa|ceviche|pisco|huacatay|rocoto"
+  "Spanish": "saffron|chorizo|manchego|sherry|paella|iberico|pimenton|romesco"
+  "Tex-Mex": "flour tortilla|fajita seasoning|fajita|nacho|queso|taco seasoning|refried beans"
+  "Thai": "fish sauce|curry paste|thai basil|kaffir lime|bird''s eye chili|nam pla|pad thai"
+  "US Southern": "buttermilk|collard greens|cornmeal|grits|okra|bacon grease|cajun|creole|andouille|remoulade"
+  "Vietnamese": "fish sauce|star anise|pho|rice paper|vermicelli|nuoc cham|banh mi"
+  "West African": "scotch bonnet|egusi|fufu|jollof|red palm oil|suya|dawadawa"
+
+text_tags:
+  "Breakfast": ["breakfast", "pancake", "waffle", "omelet", "benedict"]
+  "Comfort Food": ["mac and cheese", "casserole", "meatloaf", "gravy", "pot pie", "stew", "grilled cheese"]
+  "Dessert": ["dessert", "cake", "cookie", "brownie", "ice cream", "pie"]
+  "Extra Spicy": ["extra spicy", "insane heat", "ghost pepper", "habanero", "thai chili", "bird's eye"]
+  "Gluten Free": ["gluten free", "gluten-free", "gf"]
+  "Keto": ["keto", "ketogenic", "low carb"]
+  "One Pot": ["one pot", "sheet pan", "skillet dinner", "dutch oven"]
+  "Project Meal": ["sourdough", "ferment", "cure", "smoke", "braise", "confit", "mole"]
+  "Soup": ["soup", "stew", "chowder", "chili"]
+  "Spicy": ["spicy", "jalapeno", "hot sauce", "sriracha", "chili flakes", "serrano", "cayenne", "gochujang"]
+  "Vegan": ["vegan", "plant based"]
+
+tools_matches:
+  "Air Fryer": ["air fryer", "air-fryer"]
+  "Cast Iron": ["cast iron", "skillet"]
+  "Dutch Oven": ["dutch oven", "le creuset"]
+  "Instant Pot": ["instant pot", "pressure cooker", "multicooker"]
+  "Slow Cooker": ["slow cooker", "crock pot"]
+  "Smoker / Grill": ["smoker", "traeger", "charcoal", "grill", "big green egg"]
+  "Sous Vide": ["sous vide", "immersion circulator"]
+  "Wok": ["wok"]

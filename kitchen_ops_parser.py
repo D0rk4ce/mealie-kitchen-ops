@@ -1,63 +1,53 @@
-"""KitchenOps Batch Parser — Fixes unparsed recipe ingredients via Mealie's API.
+"""KitchenOps Batch Parser — fixes unparsed recipe ingredients via Mealie's NLP API."""
 
-Uses Mealie's local NLP parser first, then escalates to OpenAI for
-low-confidence results.  Multi-threaded for throughput.
-"""
-
-import concurrent.futures
-import json
-import logging
-import os
-import signal
-import sys
-import threading
+import concurrent.futures, json, logging, os, signal, sys, threading
 from typing import Any, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.theme import Theme
 
-# --- LOGGING ---
+# Rich Console Setup
+custom_theme = Theme({
+    "info": "cyan",
+    "warning": "yellow",
+    "error": "bold red",
+    "success": "bold green"
+})
+console = Console(theme=custom_theme)
+
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format='[%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
-)
+logging.basicConfig(level=LOG_LEVEL, format='%(message)s', handlers=[logging.NullHandler()])
 logger = logging.getLogger("parser")
 
-# --- CONFIGURATION ---
 MEALIE_URL: str = os.getenv("MEALIE_URL", "http://localhost:9000").rstrip("/")
 API_TOKEN: str = os.getenv("MEALIE_API_TOKEN", "")
 MAX_WORKERS: int = int(os.getenv("PARSER_WORKERS", "2"))
 DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
 CONFIDENCE_THRESHOLD: float = 0.85
-
 HISTORY_FILE: str = "parse_history.json"
 SAVE_INTERVAL: int = 20
 
-# --- STATE ---
 FOOD_CACHE: dict[str, str] = {}
 UNIT_CACHE: dict[str, str] = {}
 HISTORY_SET: set[str] = set()
 CACHE_LOCK = threading.Lock()
 HISTORY_LOCK = threading.Lock()
-PRINT_LOCK = threading.Lock()
 thread_local = threading.local()
 
 
 def signal_handler(sig: int, frame: Any) -> None:
-    """Handle SIGINT gracefully by saving history before exit."""
-    logger.info("Interrupt received. Saving history...")
+    console.print("\n[warning]Interrupt received. Saving history...[/warning]")
     save_history()
     sys.exit(0)
-
 
 signal.signal(signal.SIGINT, signal_handler)
 
 
 def get_session() -> requests.Session:
-    """Return a thread-local HTTP session with retry logic."""
     if not hasattr(thread_local, "session"):
         thread_local.session = requests.Session()
         thread_local.session.headers.update({
@@ -71,117 +61,91 @@ def get_session() -> requests.Session:
 
 
 def load_history() -> set[str]:
-    """Load previously parsed recipe slugs from the history file."""
     if os.path.exists(HISTORY_FILE):
         try:
             with open(HISTORY_FILE, "r") as f:
                 return set(json.load(f))
         except (json.JSONDecodeError, IOError) as e:
-            logger.warning(f"Could not load history file: {e}")
+            console.print(f"[warning]Could not load history file: {e}[/warning]")
             return set()
     return set()
 
 
 def save_history() -> None:
-    """Persist the current history set to disk."""
     with HISTORY_LOCK:
         try:
             with open(HISTORY_FILE, "w") as f:
                 json.dump(list(HISTORY_SET), f)
         except IOError as e:
-            logger.error(f"Could not save history: {e}")
+            console.print(f"[error]Could not save history: {e}[/error]")
 
 
 def prime_cache() -> None:
-    """Pre-load the food and unit caches from the Mealie API."""
-    logger.info("Initializing cache...")
-    session = requests.Session()
-    session.headers.update({"Authorization": f"Bearer {API_TOKEN}"})
+    with console.status("[bold green]Prime Cache: Fetching foods & units...[/bold green]", spinner="dots"):
+        session = requests.Session()
+        session.headers.update({"Authorization": f"Bearer {API_TOKEN}"})
 
-    # --- Units ---
-    page = 1
-    while True:
-        try:
-            r = session.get(f"{MEALIE_URL}/api/units?page={page}&perPage=2000", timeout=10)
-            if r.status_code != 200:
+        # Units
+        page = 1
+        while True:
+            try:
+                r = session.get(f"{MEALIE_URL}/api/units?page={page}&perPage=2000", timeout=10)
+                if r.status_code != 200 or not r.json().get("items"):
+                    break
+                with CACHE_LOCK:
+                    for item in r.json().get("items", []):
+                        UNIT_CACHE[item["name"].lower().strip()] = item["id"]
+                        if item.get("pluralName"):
+                            UNIT_CACHE[item["pluralName"].lower().strip()] = item["id"]
+                page += 1
+            except requests.RequestException:
                 break
-            items = r.json().get("items", [])
-            if not items:
-                break
-            with CACHE_LOCK:
-                for item in items:
-                    UNIT_CACHE[item["name"].lower().strip()] = item["id"]
-                    plural = item.get("pluralName")
-                    if plural:
-                        UNIT_CACHE[plural.lower().strip()] = item["id"]
-            page += 1
-        except requests.RequestException as e:
-            logger.warning(f"Unit cache fetch failed on page {page}: {e}")
-            break
 
-    # --- Foods ---
-    page = 1
-    count = 0
-    while True:
-        try:
-            r = session.get(f"{MEALIE_URL}/api/foods?page={page}&perPage=2000", timeout=10)
-            if r.status_code != 200:
+        # Foods
+        page = 1
+        while True:
+            try:
+                r = session.get(f"{MEALIE_URL}/api/foods?page={page}&perPage=2000", timeout=10)
+                if r.status_code != 200 or not r.json().get("items"):
+                    break
+                with CACHE_LOCK:
+                    for item in r.json().get("items", []):
+                        FOOD_CACHE[item["name"].lower().strip()] = item["id"]
+                page += 1
+            except requests.RequestException:
                 break
-            items = r.json().get("items", [])
-            if not items:
-                break
-            with CACHE_LOCK:
-                for item in items:
-                    FOOD_CACHE[item["name"].lower().strip()] = item["id"]
-            count += len(items)
-            print(f"   ...loaded {count} foods", end="\r")
-            page += 1
-        except requests.RequestException as e:
-            logger.warning(f"Food cache fetch failed on page {page}: {e}")
-            break
 
-    logger.info(f"Cache ready ({len(FOOD_CACHE)} foods, {len(UNIT_CACHE)} units).")
+    console.print(f"[info]Cache ready: {len(FOOD_CACHE)} foods, {len(UNIT_CACHE)} units.[/info]")
 
 
 def get_all_recipes() -> list[dict]:
-    """Fetch the full recipe index from the Mealie API."""
-    logger.info("Fetching recipe index...")
     session = requests.Session()
     session.headers.update({"Authorization": f"Bearer {API_TOKEN}"})
     recipes: list[dict] = []
     page = 1
-    while True:
-        try:
-            r = session.get(f"{MEALIE_URL}/api/recipes?page={page}&perPage=2000", timeout=15)
-            if r.status_code != 200:
+    
+    with console.status("[bold green]Fetching recipe index...[/bold green]", spinner="dots"):
+        while True:
+            try:
+                r = session.get(f"{MEALIE_URL}/api/recipes?page={page}&perPage=2000", timeout=15)
+                if r.status_code != 200 or not r.json().get("items"):
+                    break
+                recipes.extend(r.json().get("items", []))
+                page += 1
+            except requests.RequestException as e:
+                console.print(f"[warning]Index fetch failed page {page}: {e}[/warning]")
                 break
-            items = r.json().get("items", [])
-            if not items:
-                break
-            recipes.extend(items)
-            print(f"   ...scanned page {page}", end="\r")
-            page += 1
-        except requests.RequestException as e:
-            logger.warning(f"Recipe index fetch failed on page {page}: {e}")
-            break
-    logger.info(f"Index complete. Total recipes: {len(recipes)}")
     return recipes
 
 
 def get_id_for_food(name: str) -> Optional[str]:
-    """Look up a food ID from the cache. Returns ``None`` on miss."""
     if not name:
         return None
-    key = name.lower().strip()
     with CACHE_LOCK:
-        return FOOD_CACHE.get(key)
+        return FOOD_CACHE.get(name.lower().strip())
 
 
 def process_recipe(slug: str) -> bool:
-    """Parse a single recipe's ingredients via NLP (with AI fallback).
-
-    Returns ``True`` on success, ``False`` on failure.
-    """
     session = get_session()
     try:
         r = session.get(f"{MEALIE_URL}/api/recipes/{slug}", timeout=15)
@@ -211,7 +175,7 @@ def process_recipe(slug: str) -> bool:
     if not to_parse:
         return True
 
-    # 1. Attempt Local NLP
+    # NLP pass
     try:
         r_nlp = session.post(
             f"{MEALIE_URL}/api/parser/ingredients",
@@ -231,7 +195,7 @@ def process_recipe(slug: str) -> bool:
             else:
                 clean_ingredients[actual_index] = res
 
-        # 2. Attempt AI Escalation (if configured)
+        # AI escalation
         if retry_texts:
             try:
                 r_ai = session.post(
@@ -240,90 +204,84 @@ def process_recipe(slug: str) -> bool:
                     timeout=45
                 )
                 if r_ai.status_code == 200:
-                    ai_results = r_ai.json()
-                    for ai_idx, ai_res in enumerate(ai_results):
+                    for ai_idx, ai_res in enumerate(r_ai.json()):
                         clean_ingredients[retry_sub_indices[ai_idx]] = ai_res
-                # Silent failure: User likely doesn't have AI configured.
             except requests.RequestException:
                 pass
 
     except requests.RequestException:
         return False
 
-    # Reconstruct the ingredient list
+    # Reconstruct
     final_list: list[Any] = []
     for i, item in enumerate(clean_ingredients):
         if item is None:
-            # Keep the original raw ingredient
             final_list.append(raw_ingredients[i])
         else:
             target = item.get("ingredient", item)
             for bad_key in ("referenceId", "id", "recipeId", "stepId", "labelId"):
                 target.pop(bad_key, None)
-
-            # Link food IDs from cache
             food = target.get("food")
             if food and food.get("name"):
                 fid = get_id_for_food(food["name"])
                 if fid:
                     food["id"] = fid
-
             final_list.append(target)
 
     full_recipe["recipeIngredient"] = final_list
 
     if DRY_RUN:
-        with PRINT_LOCK:
-            logger.info(f"[DRY RUN] Would update: {slug}")
         return True
 
     try:
         r_update = session.put(f"{MEALIE_URL}/api/recipes/{slug}", json=full_recipe, timeout=15)
-        if r_update.status_code == 200:
-            with PRINT_LOCK:
-                logger.info(f"[OK] Parsed: {slug}")
-            return True
+        return r_update.status_code == 200
     except requests.RequestException:
         return False
-    return False
 
 
 if __name__ == "__main__":
-    logger.info("=" * 50)
-    logger.info("  KITCHENOPS BATCH PARSER")
-    logger.info("=" * 50)
-    logger.info(f"  Mealie   : {MEALIE_URL}")
-    logger.info(f"  Workers  : {MAX_WORKERS}")
-    logger.info(f"  Dry Run  : {DRY_RUN}")
-    logger.info("=" * 50)
-
-    if DRY_RUN:
-        logger.info("[INFO] DRY RUN ENABLED: No changes will be made.")
+    console.rule("[bold cyan]KitchenOps Batch Parser[/bold cyan]")
+    console.print(f"Mealie: [underline]{MEALIE_URL}[/underline] | Workers: {MAX_WORKERS} | Dry Run: {DRY_RUN}")
 
     if not API_TOKEN:
-        logger.error("MEALIE_API_TOKEN is not set. Cannot proceed.")
+        console.print("[error]MEALIE_API_TOKEN is not set. Cannot proceed.[/error]")
         sys.exit(1)
 
     prime_cache()
     HISTORY_SET = load_history()
     candidates = get_all_recipes()
     todo = [r for r in candidates if r["slug"] not in HISTORY_SET]
-    logger.info(f"Queue: {len(todo)} recipes to parse ({len(candidates) - len(todo)} already done)")
+    
+    if not todo:
+        console.print("[success]All recipes parsed! Nothing to do.[/success]")
+        sys.exit(0)
 
     count = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_to_slug = {executor.submit(process_recipe, r["slug"]): r["slug"] for r in todo}
-        for future in concurrent.futures.as_completed(future_to_slug):
-            slug = future_to_slug[future]
-            try:
-                if future.result():
-                    with HISTORY_LOCK:
-                        HISTORY_SET.add(slug)
-                    count += 1
-                    if count % SAVE_INTERVAL == 0:
-                        save_history()
-            except Exception as e:
-                logger.warning(f"Worker error for {slug}: {e}")
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task(f"Parsing {len(todo)} recipes...", total=len(todo))
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            future_to_slug = {executor.submit(process_recipe, r["slug"]): r["slug"] for r in todo}
+            for future in concurrent.futures.as_completed(future_to_slug):
+                slug = future_to_slug[future]
+                try:
+                    if future.result():
+                        with HISTORY_LOCK:
+                            HISTORY_SET.add(slug)
+                        count += 1
+                        if count % SAVE_INTERVAL == 0:
+                            save_history()
+                except Exception:
+                    pass
+                progress.advance(task)
 
     save_history()
-    logger.info(f"\nBatch Parse Complete. Processed {count}/{len(todo)} recipes.")
+    console.rule("[bold green]Batch Parse Complete[/bold green]")
+    console.print(f"Processed: [green]{count}[/green]/[cyan]{len(todo)}[/cyan]")

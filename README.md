@@ -3,43 +3,65 @@
 
 KitchenOps is a production-ready set of maintenance tools for [Mealie](https://mealie.io/). It automates the organization and sanitation of large recipe libraries while prioritizing "Wife Approval Factor" (WAF).
 
-## 🚀 The Suite
+## 🚀 Key Features
 
-| Tool | Script | Method | Downtime? |
-| :--- | :--- | :--- | :--- |
-| **Auto-Tagger** "The Organizer" | `kitchen_ops_tagger.py` | Direct SQL | SQLite: Yes · Postgres: No |
-| **Batch Parser** "The Fixer" | `kitchen_ops_parser.py` | Mealie API | No |
-| **Library Cleaner** "The Janitor" | `kitchen_ops_cleaner.py` | Mealie API | No |
+*   **Data-Driven Architecture**: All tagging rules (cuisines, ingredients, tools) and cleaning logic are externalized in **YAML configuration files**. Customize the behavior without touching a line of code.
+*   **Beautiful CLI**: Built with `rich`, featuring real-time progress bars, status spinners, and formatted reports.
+*   **Production Ready**: Includes robust error handling, automated retries, and comprehensive logging.
 
-### 1. Auto-Tagger
-Applies intelligent tags based on "World Fingerprints" (30+ cuisines), proteins, cheese categories, and cooking equipment. Directly queries the database for raw speed using regex-based ingredient matching.
+## 🛠️ The Suite
 
-### 2. Batch Parser
-A multi-threaded worker that fixes "unparsed" ingredients using Mealie's local NLP engine, with automatic AI escalation for low-confidence results.
+| Tool | Script | Method | Complexity | Speed | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Batch Parser** "The Fixer" | `kitchen_ops_parser.py` | Mealie API | **Simple** | **Slowest** | Uses Mealie's NLP + OpenAI fallback. Can take days (or a week for massive 70k+ libraries). |
+| **Library Cleaner** "The Janitor" | `kitchen_ops_cleaner.py` | Mealie API | **Simple** | **Medium** | Scans metadata via API. Safe and effective. |
+| **Auto-Tagger** "The Organizer" | `kitchen_ops_tagger.py` | Direct SQL | **Advanced** | **Fastest** | Direct DB regex matching. Processes 1000s of recipes per minute. |
 
-### 3. Library Cleaner
-Scans for "junk" content (product pages, listicles, beauty tips) and recipes with empty/broken instructions. All deletions are simulated by default (`DRY_RUN=true`).
+> [!NOTE]
+> **Don't be intimidated!** If you just want to fix unparsed ingredients or clean up junk content, you **do not** need to configure the database connections. The Parser and Cleaner work with just an API token. The complex database setup below is **only** for the high-speed Auto-Tagger.
 
 ---
 
-## ⚙️ Configuration (.env)
+## ⚙️ Configuration
 
-| Variable | Default | Used By | Description |
-| :--- | :--- | :--- | :--- |
-| `DRY_RUN` | `true` | All | Set to `false` to apply changes. |
-| `SCRIPT_TO_RUN` | `tagger` | Entrypoint | Choose `tagger`, `parser`, `cleaner`, or `all`. |
-| `LOG_LEVEL` | `INFO` | All | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
-| `DB_TYPE` | `sqlite` | Tagger | Database backend: `sqlite` or `postgres`. |
-| `SQLITE_PATH` | `/app/data/mealie.db` | Tagger | Path to SQLite database file. |
-| `POSTGRES_HOST` | `postgres` | Tagger | Postgres server hostname or IP. |
-| `POSTGRES_PORT` | `5432` | Tagger | Postgres server port. |
-| `POSTGRES_DB` | `mealie` | Tagger | Postgres database name. |
-| `POSTGRES_USER` | `mealie` | Tagger | Postgres username. |
-| `POSTGRES_PASSWORD` | `mealie` | Tagger | Postgres password. |
-| `MEALIE_URL` | - | Parser, Cleaner | Your Mealie instance URL (e.g. `http://192.168.1.50:9000`). |
-| `MEALIE_API_TOKEN` | - | Parser, Cleaner | API token from Mealie → User Profile → API Tokens. |
-| `PARSER_WORKERS` | `2` | Parser | Number of concurrent parsing threads. |
-| `CLEANER_WORKERS` | `2` | Cleaner | Number of concurrent integrity-check threads. |
+KitchenOps is configured via environment variables (for connection details) and YAML files (for logic rules).
+
+### 1. Environment Variables (.env)
+
+#### 🟢 Basic Settings (Parser, Cleaner, & Common)
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `MEALIE_URL` | - | Your Mealie instance URL (e.g. `http://PLACEHOLDER_MEALIE_IP:9000`). |
+| `MEALIE_API_TOKEN` | - | API token from Mealie → User Profile → API Tokens. |
+| `DRY_RUN` | `true` | Set to `false` to apply changes. |
+| `SCRIPT_TO_RUN` | `parser` | Entrypoint | Choose `tagger`, `parser`, `cleaner`, or `all`. |
+| `LOG_LEVEL` | `INFO` | Logging verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `PARSER_WORKERS` | `2` | Number of concurrent parsing threads. |
+| `CLEANER_WORKERS` | `2` | Number of concurrent integrity-check threads. |
+
+#### 🔴 Advanced Settings (Auto-Tagger Only)
+
+> These are **only required if you use `kitchen_ops_tagger.py`**. The database connection allows the Tagger to process thousands of recipes instantly via direct SQL.
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DB_TYPE` | `sqlite` | Database backend: `sqlite` or `postgres`. |
+| `SQLITE_PATH` | `/app/data/mealie.db` | Path to SQLite database file. |
+| `POSTGRES_HOST` | `postgres` | Postgres server hostname or IP. |
+| `POSTGRES_PORT` | `5432` | Postgres server port. |
+| `POSTGRES_DB` | `mealie` | Postgres database name. |
+| `POSTGRES_USER` | `mealie` | Postgres username. |
+| `POSTGRES_PASSWORD` | `mealie` | Postgres password. |
+
+### 2. Logic Rules (YAML)
+
+To customize how KitchenOps behaves, edit the files in the `config/` directory:
+
+*   **`config/tagging.yaml`**: Define regex patterns for Proteins, Cuisines, Cheese categories, Text tags, and Tool detection.
+    *   *Example:* Add "Air Fryer" detection by adding `air fryer` to the `tools_matches` list.
+*   **`config/cleaning.yaml`**: Define the "blacklisted keywords" for the Library Cleaner.
+    *   *Example:* Add "giveaway" or "review" to automatically flag those pages as junk.
 
 ---
 
@@ -48,17 +70,18 @@ Scans for "junk" content (product pages, listicles, beauty tips) and recipes wit
 ```bash
 # 1. Create your .env file
 cp .env.example .env
-# Edit .env with your settings
+# Edit .env with your settings (add your PLACEHOLDER_API_TOKEN etc.)
 
 # 2. Pull the image
 docker pull ghcr.io/d0rk4ce/kitchen-ops:latest
 
 # 3. Run (interactive mode for safety prompts)
-docker run -it --rm --env-file .env ghcr.io/d0rk4ce/kitchen-ops:latest
+# Mount the config directory if you want to customize rules!
+docker run -it --rm \
+  --env-file .env \
+  -v $(pwd)/config:/app/config \
+  ghcr.io/d0rk4ce/kitchen-ops:latest
 ```
-
-> [!IMPORTANT]
-> **Safety Lock:** When running on SQLite, the container will pause and ask for confirmation that Mealie is stopped. Use the `-it` flag to ensure you can see and answer this prompt!
 
 Run `--help` for a full usage guide:
 ```bash
@@ -67,9 +90,12 @@ docker run --rm ghcr.io/d0rk4ce/kitchen-ops:latest --help
 
 ---
 
-## 🗄️ Database & API Setup
+## 🗄️ Database Setup (Tagger Only)
 
-KitchenOps uses **two different methods** to interact with your data. The **Tagger** uses direct SQL for speed. The **Parser** and **Cleaner** use the Mealie REST API for zero-downtime operation.
+> [!TIP]
+> **Skip this section** if you are only using the **Parser** or **Cleaner**. Those tools use the API and do not need direct database access.
+
+KitchenOps uses **direct SQL** for the Tagger to achieve blazing speed.
 
 ### 📂 SQLite (The "Sandwich" Command)
 
@@ -80,7 +106,10 @@ KitchenOps uses **two different methods** to interact with your data. The **Tagg
 **The Sandwich** — stop Mealie, run KitchenOps, restart Mealie:
 ```bash
 docker stop mealie && \
-  docker run -it --rm --env-file .env -v /path/to/mealie/data:/app/data ghcr.io/d0rk4ce/kitchen-ops:latest && \
+  docker run -it --rm --env-file .env \
+  -v /path/to/mealie/data:/app/data \
+  -v $(pwd)/config:/app/config \
+  ghcr.io/d0rk4ce/kitchen-ops:latest && \
   docker start mealie
 ```
 
@@ -104,10 +133,10 @@ Your `.env` file needs the `POSTGRES_` prefixed variables:
 ```ini
 DB_TYPE=postgres
 
-POSTGRES_DB=mealie_db
-POSTGRES_USER=mealie_user
-POSTGRES_PASSWORD=YOUR_DB_PASSWORD
-POSTGRES_HOST=192.168.14.55
+POSTGRES_DB=mealie
+POSTGRES_USER=mealie
+POSTGRES_PASSWORD=PLACEHOLDER_DB_PASSWORD
+POSTGRES_HOST=PLACEHOLDER_POSTGRES_IP
 POSTGRES_PORT=5432
 ```
 
@@ -118,21 +147,19 @@ By default, Postgres may block external connections from your machine. Verify th
 | File | Required Setting | Purpose |
 | :--- | :--- | :--- |
 | `postgresql.conf` | `listen_addresses = '*'` | Listen beyond localhost |
-| `pg_hba.conf` | `host all all 192.168.14.0/24 md5` | Allow your local network |
+| `pg_hba.conf` | `host all all PLACEHOLDER_SUBNET/24 md5` | Allow your local network |
 
 After editing, restart Postgres: `sudo systemctl restart postgresql`
 
 #### 3. Running Locally (Dev / Manual)
 
-To run scripts directly on your machine (outside Docker), load the `.env` variables into your shell:
+To run scripts directly on your machine (outside Docker), install dependencies and load environment variables:
 
 ```bash
-# Load .env and run the Tagger in dry-run mode
-export $(grep -v '^#' .env | xargs) && DRY_RUN=true SCRIPT_TO_RUN=tagger ./entrypoint.sh
-```
+# 1. Install dependencies
+pip install -r requirements.txt
 
-Or run a specific script directly:
-```bash
+# 2. Load .env and run
 export $(grep -v '^#' .env | xargs) && python3 kitchen_ops_tagger.py
 ```
 
@@ -146,7 +173,7 @@ export $(grep -v '^#' .env | xargs) && python3 kitchen_ops_tagger.py
 | `MEALIE_API_TOKEN is not set` | The Parser and Cleaner require an API token. Generate one in Mealie → User Profile → API Tokens. |
 | `connection refused` (Postgres) | Check `pg_hba.conf` and `postgresql.conf` on the DB server. Ensure the port is open in your firewall. |
 | `database is locked` (SQLite) | Mealie is still running. Stop it first: `docker stop mealie` |
-| Container exits immediately | Check `DRY_RUN` is set. Run with `-it` flag for interactive prompts. |
+| `Failed to load config/tagging.yaml` | Ensure you are running the script from the project root or that the `config/` directory is mounted correctly in Docker. |
 
 ---
 

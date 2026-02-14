@@ -1,0 +1,34 @@
+# ==========================================
+# KitchenOps — Cleaning Rules (YAML)
+# ==========================================
+
+# Keywords that suggest a recipe is actually a blog post, review, or product page.
+junk_keywords:
+  - "cleaning"
+  - "storing"
+  - "freezing"
+  - "pantry"
+  - "kitchen tools"
+  - "review"
+  - "giveaway"
+  - "shop"
+  - "store"
+  - "product"
+  - "gift"
+  - "unboxing"
+  - "news"
+  - "travel"
+  - "podcast"
+  - "interview"
+  - "night cream"
+  - "face mask"
+  - "skin care"
+  - "beauty"
+  - "diy"
+  - "weekly plan"
+  - "menu"
+  - "holiday guide"
+  - "foods to try"
+  - "things to eat"
+  - "detox water"
+  - "lose weight"
