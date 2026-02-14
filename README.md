@@ -73,19 +73,19 @@ cp .env.example .env
 # Edit .env with your settings (add your PLACEHOLDER_API_TOKEN etc.)
 
 # 2. Pull the image
-docker pull ghcr.io/d0rk4ce/kitchen-ops:latest
+docker pull ghcr.io/d0rk4ce/mealie-kitchen-ops:latest
 
 # 3. Run (interactive mode for safety prompts)
 # Mount the config directory if you want to customize rules!
 docker run -it --rm \
   --env-file .env \
   -v $(pwd)/config:/app/config \
-  ghcr.io/d0rk4ce/kitchen-ops:latest
+  ghcr.io/d0rk4ce/mealie-kitchen-ops:latest
 ```
 
 Run `--help` for a full usage guide:
 ```bash
-docker run --rm ghcr.io/d0rk4ce/kitchen-ops:latest --help
+docker run --rm ghcr.io/d0rk4ce/mealie-kitchen-ops:latest --help
 ```
 
 ---
@@ -109,7 +109,7 @@ docker stop mealie && \
   docker run -it --rm --env-file .env \
   -v /path/to/mealie/data:/app/data \
   -v $(pwd)/config:/app/config \
-  ghcr.io/d0rk4ce/kitchen-ops:latest && \
+  ghcr.io/d0rk4ce/mealie-kitchen-ops:latest && \
   docker start mealie
 ```
 
