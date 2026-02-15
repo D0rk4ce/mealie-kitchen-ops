@@ -37,16 +37,16 @@ fi
 # --- Load saved env if it exists (only fill in blanks) ---
 if [ -f "$ENV_FILE" ]; then
     while IFS='=' read -r key value; do
-        # Skip comments and empty lines
         case "$key" in
             \#*|"") continue ;;
         esac
-        # Only set if not already in environment
         eval "current=\$$key"
         if [ -z "$current" ]; then
             export "$key=$value"
         fi
     done < "$ENV_FILE"
+    # Re-read DATABASE in case DB_TYPE was loaded from saved env
+    DATABASE=${DB_TYPE:-sqlite}
 fi
 
 echo "========================================"
@@ -57,14 +57,23 @@ echo "========================================"
 if [ -n "$SCRIPT_TO_RUN" ]; then
     SCRIPT="$SCRIPT_TO_RUN"
 elif [ -t 0 ]; then
-    # Interactive terminal — show selection menu
     echo ""
-    echo "  Select a tool to run:"
+    echo "  What would you like to do?"
     echo ""
-    echo "    1) 🔧 Batch Parser    Fix unparsed ingredients (API, safe)"
-    echo "    2) 🧹 Library Cleaner Remove junk & broken recipes (API, safe)"
-    echo "    3) 🏷️  Auto-Tagger    Tag by cuisine, protein, tools (DB, advanced)"
-    echo "    4) 🚀 Run All         Tagger → Cleaner → Parser (full suite)"
+    echo "    1) 🔧 Batch Parser"
+    echo "       Fix unparsed ingredients using Mealie's NLP engine."
+    echo "       Requires: API only   |  Speed: Slow (days for large libraries)"
+    echo ""
+    echo "    2) 🧹 Library Cleaner"
+    echo "       Remove junk content and broken recipes automatically."
+    echo "       Requires: API only   |  Speed: Medium"
+    echo ""
+    echo "    3) 🏷️  Auto-Tagger"
+    echo "       Tag recipes by cuisine, protein, cheese, and kitchen tools."
+    echo "       Requires: DATABASE   |  Speed: Blazing fast (1000s/min)"
+    echo ""
+    echo "    4) 🚀 Run All"
+    echo "       Execute the full suite: Tagger → Cleaner → Parser"
     echo ""
     printf "  Enter choice [1-4]: "
     read choice
@@ -74,61 +83,172 @@ elif [ -t 0 ]; then
         3) SCRIPT="tagger"  ;;
         4) SCRIPT="all"     ;;
         *)
-            echo "❌ Invalid selection. Exiting."
+            echo ""
+            echo "  ❌ Invalid selection. Please run again and choose 1-4."
             exit 1
             ;;
     esac
+    echo ""
 else
-    # Non-interactive (piped/cron) — safe default
     SCRIPT="parser"
 fi
 
-# --- First-Run Setup Wizard ---
-# Only runs in interactive mode when required vars are missing
+# ======================================
+# FIRST-RUN SETUP WIZARD
+# Only triggers in interactive mode when required vars are missing.
+# ======================================
 NEEDS_SAVE=false
 
 if [ -t 0 ]; then
-    # API-based tools need MEALIE_URL and MEALIE_API_TOKEN
+
+    # -----------------------------------------------------------
+    # MEALIE API SETTINGS (needed by Parser, Cleaner, and "all")
+    # -----------------------------------------------------------
     if [ "$SCRIPT" = "parser" ] || [ "$SCRIPT" = "cleaner" ] || [ "$SCRIPT" = "all" ]; then
-        if [ -z "$MEALIE_URL" ]; then
+
+        if [ -z "$MEALIE_URL" ] || [ -z "$MEALIE_API_TOKEN" ]; then
+            echo "  ──────────────────────────────────────"
+            echo "  ⚙️  First-Run Setup — API Connection"
+            echo "  ──────────────────────────────────────"
             echo ""
-            echo "  ⚙️  First-Run Setup"
-            echo "  ─────────────────────"
-            printf "  Mealie URL (e.g. http://192.168.1.100:9000): "
+        fi
+
+        if [ -z "$MEALIE_URL" ]; then
+            echo "  Your Mealie URL is the address you use to access Mealie"
+            echo "  in your browser. Include the port if applicable."
+            echo ""
+            echo "  Examples:"
+            echo "    • http://192.168.1.100:9000"
+            echo "    • http://mealie.local:9000"
+            echo "    • https://mealie.yourdomain.com"
+            echo ""
+            printf "  Mealie URL: "
             read input_url
             if [ -n "$input_url" ]; then
                 export MEALIE_URL="$input_url"
                 NEEDS_SAVE=true
+            else
+                echo "  ❌ Mealie URL is required. Exiting."
+                exit 1
             fi
+            echo ""
         fi
 
         if [ -z "$MEALIE_API_TOKEN" ]; then
-            printf "  Mealie API Token (from User Profile → API Tokens): "
+            echo "  An API token lets KitchenOps talk to Mealie on your behalf."
+            echo ""
+            echo "  To create one:"
+            echo "    1. Log in to Mealie as an admin user"
+            echo "    2. Click your profile icon (top-right)"
+            echo "    3. Go to 'API Tokens'"
+            echo "    4. Create a new token and copy it"
+            echo ""
+            printf "  API Token: "
             read input_token
             if [ -n "$input_token" ]; then
                 export MEALIE_API_TOKEN="$input_token"
                 NEEDS_SAVE=true
+            else
+                echo "  ❌ API Token is required. Exiting."
+                exit 1
             fi
+            echo ""
         fi
     fi
 
-    # Tagger needs database settings
+    # -----------------------------------------------------------
+    # DATABASE SETTINGS (only for Tagger or "all")
+    # -----------------------------------------------------------
     if [ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]; then
+
+        # Also need API settings if running "all"
+        if [ "$SCRIPT" = "all" ]; then
+            # API settings were already handled above
+            :
+        fi
+
+        # Need Mealie URL for tagger info display even though it uses DB
+        if [ -z "$MEALIE_URL" ] && [ "$SCRIPT" = "tagger" ]; then
+            echo "  ──────────────────────────────────────"
+            echo "  ⚙️  First-Run Setup"
+            echo "  ──────────────────────────────────────"
+            echo ""
+        fi
+
         if [ -z "$DB_TYPE" ]; then
+            echo "  ──────────────────────────────────────"
+            echo "  🗄️  Database Setup — Tagger Only"
+            echo "  ──────────────────────────────────────"
+            echo ""
+            echo "  The Auto-Tagger connects directly to Mealie's database"
+            echo "  for maximum speed. Which database does your Mealie use?"
+            echo ""
+            echo "    sqlite   — Default for most installs. Uses a .db file."
+            echo "    postgres — Used by larger or production setups."
+            echo ""
+            echo "  Tip: Check your Mealie docker-compose.yml — if you see"
+            echo "       a 'postgres' service, you're using Postgres."
+            echo ""
             printf "  Database type [sqlite/postgres] (default: sqlite): "
             read input_db
             input_db=${input_db:-sqlite}
             export DB_TYPE="$input_db"
             DATABASE="$input_db"
             NEEDS_SAVE=true
+            echo ""
+        fi
+
+        if [ "$DATABASE" = "sqlite" ]; then
+            if [ -z "$SQLITE_PATH" ]; then
+                echo "  📂 SQLite Setup"
+                echo ""
+                echo "  KitchenOps needs the path to Mealie's SQLite database file."
+                echo "  This is the file inside your Docker volume, typically at:"
+                echo ""
+                echo "    /app/data/mealie.db"
+                echo ""
+                echo "  Make sure you mount your Mealie data directory with:"
+                echo "    -v /path/to/mealie/data:/app/data"
+                echo ""
+                printf "  SQLite DB path (default: /app/data/mealie.db): "
+                read input_sqlpath
+                input_sqlpath=${input_sqlpath:-/app/data/mealie.db}
+                export SQLITE_PATH="$input_sqlpath"
+                NEEDS_SAVE=true
+                echo ""
+            fi
         fi
 
         if [ "$DATABASE" = "postgres" ]; then
+            echo "  🐘 Postgres Connection Setup"
+            echo ""
+            echo "  ┌─────────────────────────────────────────────────┐"
+            echo "  │  Where to find your Postgres credentials:       │"
+            echo "  │                                                 │"
+            echo "  │  • docker-compose.yml → look for POSTGRES_*     │"
+            echo "  │  • /root/mealie.creds (community script)        │"
+            echo "  │  • ~/mealie/mealie.creds (home dir install)     │"
+            echo "  │  • Your .env file used with Mealie              │"
+            echo "  └─────────────────────────────────────────────────┘"
+            echo ""
+
             if [ -z "$POSTGRES_HOST" ]; then
-                printf "  Postgres Host (e.g. 192.168.1.100): "
+                echo "  The hostname or IP of your Postgres server."
+                echo "  If Mealie and Postgres run on the same Docker network,"
+                echo "  use the service name (e.g. 'postgres' or 'db')."
+                echo ""
+                printf "  Postgres Host (e.g. 192.168.1.100 or 'postgres'): "
                 read input_pghost
-                [ -n "$input_pghost" ] && export POSTGRES_HOST="$input_pghost" && NEEDS_SAVE=true
+                if [ -n "$input_pghost" ]; then
+                    export POSTGRES_HOST="$input_pghost"
+                    NEEDS_SAVE=true
+                else
+                    echo "  ❌ Postgres host is required. Exiting."
+                    exit 1
+                fi
+                echo ""
             fi
+
             if [ -z "$POSTGRES_PORT" ]; then
                 printf "  Postgres Port (default: 5432): "
                 read input_pgport
@@ -136,45 +256,61 @@ if [ -t 0 ]; then
                 export POSTGRES_PORT="$input_pgport"
                 NEEDS_SAVE=true
             fi
+
             if [ -z "$POSTGRES_DB" ]; then
-                printf "  Postgres Database (default: mealie): "
+                printf "  Database Name (default: mealie): "
                 read input_pgdb
                 input_pgdb=${input_pgdb:-mealie}
                 export POSTGRES_DB="$input_pgdb"
                 NEEDS_SAVE=true
             fi
+
             if [ -z "$POSTGRES_USER" ]; then
-                printf "  Postgres User (default: mealie): "
+                printf "  Username (default: mealie): "
                 read input_pguser
                 input_pguser=${input_pguser:-mealie}
                 export POSTGRES_USER="$input_pguser"
                 NEEDS_SAVE=true
             fi
+
             if [ -z "$POSTGRES_PASSWORD" ]; then
-                printf "  Postgres Password: "
+                echo ""
+                echo "  Tip: Your password is usually in one of these locations:"
+                echo "    • docker-compose.yml → POSTGRES_PASSWORD"
+                echo "    • /root/mealie.creds"
+                echo "    • ~/mealie/mealie.creds"
+                echo ""
+                printf "  Password: "
                 read input_pgpass
-                [ -n "$input_pgpass" ] && export POSTGRES_PASSWORD="$input_pgpass" && NEEDS_SAVE=true
+                if [ -n "$input_pgpass" ]; then
+                    export POSTGRES_PASSWORD="$input_pgpass"
+                    NEEDS_SAVE=true
+                else
+                    echo "  ❌ Postgres password is required. Exiting."
+                    exit 1
+                fi
             fi
-        elif [ "$DATABASE" = "sqlite" ]; then
-            if [ -z "$SQLITE_PATH" ]; then
-                printf "  SQLite DB path (default: /app/data/mealie.db): "
-                read input_sqlpath
-                input_sqlpath=${input_sqlpath:-/app/data/mealie.db}
-                export SQLITE_PATH="$input_sqlpath"
-                NEEDS_SAVE=true
-            fi
+
+            echo ""
+            echo "  ⚠️  Reminder: Postgres must allow external connections."
+            echo "  If you get 'connection refused', check on the DB server:"
+            echo "    • postgresql.conf → listen_addresses = '*'"
+            echo "    • pg_hba.conf    → host all all YOUR_SUBNET/24 md5"
+            echo "  Then: sudo systemctl restart postgresql"
+            echo ""
         fi
     fi
 
-    # Save settings for next time
+    # --- Save settings for next time ---
     if [ "$NEEDS_SAVE" = "true" ]; then
-        echo ""
-        echo "  💾 Saving settings to config/.env for next time..."
+        echo "  💾 Saving settings to config/.env..."
+        echo "     (Mount -v \$(pwd)/config:/app/config and these load automatically)"
         {
             echo "# KitchenOps — Auto-generated settings"
             echo "# Saved on $(date '+%Y-%m-%d %H:%M:%S')"
             [ -n "$MEALIE_URL" ] && echo "MEALIE_URL=$MEALIE_URL"
             [ -n "$MEALIE_API_TOKEN" ] && echo "MEALIE_API_TOKEN=$MEALIE_API_TOKEN"
+            [ -n "$DRY_RUN" ] && echo "DRY_RUN=$DRY_RUN"
             [ -n "$DB_TYPE" ] && echo "DB_TYPE=$DB_TYPE"
             [ -n "$SQLITE_PATH" ] && echo "SQLITE_PATH=$SQLITE_PATH"
             [ -n "$POSTGRES_HOST" ] && echo "POSTGRES_HOST=$POSTGRES_HOST"
@@ -183,11 +319,11 @@ if [ -t 0 ]; then
             [ -n "$POSTGRES_USER" ] && echo "POSTGRES_USER=$POSTGRES_USER"
             [ -n "$POSTGRES_PASSWORD" ] && echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
         } > "$ENV_FILE"
-        echo "  ✅ Saved! Mount config/ next time and these will be loaded automatically."
+        echo "  ✅ Done! Your settings are saved for next time."
+        echo ""
     fi
 fi
 
-echo ""
 echo "  Script : $SCRIPT"
 echo "  DB     : $DATABASE"
 echo "  Dry Run: ${DRY_RUN:-true}"
@@ -196,15 +332,22 @@ echo "========================================"
 # SAFETY LOCK: Prevent SQLite tagging on a live DB
 if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]); then
     echo ""
-    echo "❗ SAFETY ALERT: SQLite detected."
-    echo "The Tagger requires a direct database lock and cannot run on a live Mealie instance."
-    echo "Please ensure you have STOPPED your Mealie container before proceeding."
+    echo "  ❗ SAFETY ALERT: SQLite Mode"
     echo ""
-    read -p "Have you stopped Mealie? (y/N): " confirmed
+    echo "  SQLite locks the database file during writes."
+    echo "  Running the Tagger while Mealie is active WILL"
+    echo "  corrupt your database."
+    echo ""
+    echo "  Please stop Mealie first:  docker stop mealie"
+    echo "  You can restart it after:  docker start mealie"
+    echo ""
+    printf "  Have you stopped Mealie? (y/N): "
+    read confirmed
     if [ "$confirmed" != "y" ] && [ "$confirmed" != "Y" ]; then
-        echo "❌ Operation cancelled by user. Prevented potential corruption."
+        echo "  ❌ Cancelled. Your database is safe."
         exit 1
     fi
+    echo ""
 fi
 
 case "$SCRIPT" in
@@ -227,10 +370,10 @@ case "$SCRIPT" in
     python3 kitchen_ops_parser.py
     ;;
   *)
-    echo "❌ Unknown script: $SCRIPT"
+    echo "  ❌ Unknown script: $SCRIPT"
     echo ""
-    echo "Available options: tagger, parser, cleaner, all"
-    echo "Run with --help for more info."
+    echo "  Available options: tagger, parser, cleaner, all"
+    echo "  Run with --help for more info."
     exit 1
     ;;
 esac
