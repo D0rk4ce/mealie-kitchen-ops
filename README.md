@@ -17,8 +17,8 @@ KitchenOps is a production-ready set of maintenance tools for [Mealie](https://m
 | **Library Cleaner** "The Janitor" | `kitchen_ops_cleaner.py` | Mealie API | **Simple** | **Medium** | Scans metadata via API. Safe and effective. |
 | **Auto-Tagger** "The Organizer" | `kitchen_ops_tagger.py` | Direct SQL | **Advanced** | **Fastest** | Direct DB regex matching. Processes 1000s of recipes per minute. |
 
-> [!NOTE]
-> **Don't be intimidated!** If you just want to fix unparsed ingredients or clean up junk content, you **do not** need to configure the database connections. The Parser and Cleaner work with just an API token. The complex database setup below is **only** for the high-speed Auto-Tagger.
+> [!TIP]
+> **Performance Tip:** While the Parser and Cleaner *can* run with just an API token, configuring the **Database Connection** (below) triggers **Accelerator Mode**, reducing startup times from hours to seconds (1000x faster). Highly recommended!
 
 ---
 
@@ -40,9 +40,9 @@ KitchenOps is configured via environment variables (for connection details) and 
 | `PARSER_WORKERS` | `2` | Number of concurrent parsing threads. |
 | `CLEANER_WORKERS` | `2` | Number of concurrent integrity-check threads. |
 
-#### 🔴 Advanced Settings (Auto-Tagger Only)
+#### 🔴 Database Settings (Accelerator & Tagger)
 
-> These are **only required if you use `kitchen_ops_tagger.py`**. The database connection allows the Tagger to process thousands of recipes instantly via direct SQL.
+> **Required for Tagger**. Optional but recommended for Parser/Cleaner (enables acceleration).
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -96,12 +96,14 @@ docker run --rm ghcr.io/d0rk4ce/mealie-kitchen-ops:latest --help
 
 ---
 
-## 🗄️ Database Setup (Tagger Only)
+## 🗄️ Database Setup (Accelerator & Tagger)
 
 > [!TIP]
 > **Skip this section** if you are only using the **Parser** or **Cleaner**. Those tools use the API and do not need direct database access.
 
-KitchenOps uses **direct SQL** for the Tagger to achieve blazing speed.
+KitchenOps uses **direct SQL** to achieve blazing speed.
+> *   **Tagger:** Required (1000s recipes/min).
+> *   **Parser/Cleaner:** Optional (Enables "Accelerator Mode" — instant startup).
 
 ### 📂 SQLite (The "Sandwich" Command)
 
