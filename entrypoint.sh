@@ -2,7 +2,7 @@
 
 DATABASE=${DB_TYPE:-sqlite}
 VERSION="1.0.0"
-ENV_FILE="/app/config/.env"
+ENV_FILE="config/.env"
 
 # Graceful exit on Ctrl+C or termination
 trap 'echo ""; echo "  ⛔ Interrupted. Exiting gracefully."; exit 130' INT TERM
