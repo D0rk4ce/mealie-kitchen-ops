@@ -211,15 +211,17 @@ def connect_db() -> Optional[object]:
     """Try to connect to the database. Returns connection or None."""
     if not DB_TYPE:
         return None
+    
+    # SAFETY: Only allow Postgres for concurrent read/write operations
+    # SQLite has poor concurrency and risks locking/corruption if Mealie is running.
+    if DB_TYPE == "sqlite":
+        return None
+
     try:
         if DB_TYPE == "postgres":
             import psycopg2
             conn = psycopg2.connect(dbname=PG_DB, user=PG_USER, password=PG_PASS, host=PG_HOST, port=PG_PORT)
             conn.autocommit = True
-            return conn
-        elif DB_TYPE == "sqlite":
-            import sqlite3
-            conn = sqlite3.connect(SQLITE_PATH)
             return conn
     except Exception as e:
         console.print(f"[warning]DB connection failed, falling back to API: {e}[/warning]")

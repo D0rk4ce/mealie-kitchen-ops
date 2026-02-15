@@ -18,7 +18,8 @@ KitchenOps is a production-ready set of maintenance tools for [Mealie](https://m
 | **Auto-Tagger** "The Organizer" | `kitchen_ops_tagger.py` | Direct SQL | **Advanced** | **Fastest** | Direct DB regex matching. Processes 1000s of recipes per minute. |
 
 > [!TIP]
-> **Performance Tip:** While the Parser and Cleaner *can* run with just an API token, configuring the **Database Connection** (below) triggers **Accelerator Mode**, reducing startup times from hours to seconds (1000x faster). Highly recommended!
+> **Performance Tip:** While the Parser and Cleaner *can* run with just an API token, configuring a **Postgres Database** (below) triggers **Accelerator Mode**, reducing startup times from hours to seconds (1000x faster).
+> *Note: Accelerator Mode is disabled for SQLite to prevent database locking.*
 
 ---
 
@@ -42,7 +43,7 @@ KitchenOps is configured via environment variables (for connection details) and 
 
 #### 🔴 Database Settings (Accelerator & Tagger)
 
-> **Required for Tagger**. Optional but recommended for Parser/Cleaner (enables acceleration).
+> **Required for Tagger**. Optional but recommended for Parser/Cleaner (Postgres only).
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -102,8 +103,8 @@ docker run --rm ghcr.io/d0rk4ce/mealie-kitchen-ops:latest --help
 > **Skip this section** if you are only using the **Parser** or **Cleaner**. Those tools use the API and do not need direct database access.
 
 KitchenOps uses **direct SQL** to achieve blazing speed.
-> *   **Tagger:** Required (1000s recipes/min).
-> *   **Parser/Cleaner:** Optional (Enables "Accelerator Mode" — instant startup).
+> *   **Tagger:** Required (1000s recipes/min). Works with SQLite or Postgres.
+> *   **Parser/Cleaner:** Optional (Enables "Accelerator Mode"). **Postgres Only**.
 
 ### 📂 SQLite (The "Sandwich" Command)
 
