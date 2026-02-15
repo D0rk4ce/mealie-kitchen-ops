@@ -414,6 +414,28 @@ if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all
     echo "  Running the Tagger while Mealie is active WILL"
     echo "  corrupt your database."
     echo ""
+    
+    # LIVENESS CHECK: If MEALIE_URL is set, verify it's down
+    if [ -n "$MEALIE_URL" ]; then
+        echo "  🔍 Checking if Mealie is running at $MEALIE_URL ..."
+        # Python one-liner to check connectivity (avoids needing curl)
+        STATUS=$(python3 -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
+        
+        if [ "$STATUS" = "UP" ]; then
+            echo ""
+            echo "  ❌ FATAL: MEALIE IS RUNNING!"
+            echo "     Received response from $MEALIE_URL"
+            echo ""
+            echo "     You MUST stop Mealie before running the Tagger with SQLite."
+            echo "     Run: 'docker stop mealie' and try again."
+            echo ""
+            exit 1
+        else
+            echo "     ✅ Mealie appears to be down (or unreachable). Good."
+            echo ""
+        fi
+    fi
+
     echo "  Please stop Mealie first:  docker stop mealie"
     echo "  You can restart it after:  docker start mealie"
     echo ""
