@@ -75,16 +75,22 @@ elif [ -t 0 ]; then
     echo "    4) 🚀 Run All"
     echo "       Execute the full suite: Tagger → Cleaner → Parser"
     echo ""
-    printf "  Enter choice [1-4]: "
+    echo "    0) ❌ Exit"
+    echo ""
+    printf "  Enter choice [0-4]: "
     read choice
     case "$choice" in
         1) SCRIPT="parser"  ;;
         2) SCRIPT="cleaner" ;;
         3) SCRIPT="tagger"  ;;
         4) SCRIPT="all"     ;;
+        0)
+            echo "  Goodbye!"
+            exit 0
+            ;;
         *)
             echo ""
-            echo "  ❌ Invalid selection. Please run again and choose 1-4."
+            echo "  ❌ Invalid selection. Please run again and choose 0-4."
             exit 1
             ;;
     esac
@@ -301,7 +307,26 @@ if [ -t 0 ]; then
         fi
     fi
 
-    # --- Save settings for next time ---
+    # --- Dry Run Prompt ---
+    if [ -z "$DRY_RUN" ]; then
+        echo "  ──────────────────────────────────────"
+        echo "  🛡️  Safety Mode"
+        echo "  ──────────────────────────────────────"
+        echo ""
+        echo "  Dry Run mode lets you preview what KitchenOps would do"
+        echo "  without making any actual changes. Recommended for first run."
+        echo ""
+        printf "  Enable Dry Run? (Y/n): "
+        read input_dry
+        case "$input_dry" in
+            n|N|no|NO) export DRY_RUN="false" ;;
+            *)         export DRY_RUN="true"  ;;
+        esac
+        NEEDS_SAVE=true
+        echo ""
+    fi
+
+    # --- Save settings for next time (re-check after dry run prompt) ---
     if [ "$NEEDS_SAVE" = "true" ]; then
         echo "  💾 Saving settings to config/.env..."
         echo "     (Mount -v \$(pwd)/config:/app/config and these load automatically)"
