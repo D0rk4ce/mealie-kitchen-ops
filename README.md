@@ -70,15 +70,21 @@ To customize how KitchenOps behaves, edit the files in the `config/` directory:
 ```bash
 # 1. Create your .env file
 cp .env.example .env
-# Edit .env with your settings (add your PLACEHOLDER_API_TOKEN etc.)
+# Edit .env with your settings (add your API token, Mealie URL, etc.)
 
 # 2. Pull the image
 docker pull ghcr.io/d0rk4ce/mealie-kitchen-ops:latest
 
-# 3. Run (interactive mode for safety prompts)
-# Mount the config directory if you want to customize rules!
+# 3a. Run interactively — you'll get a selection menu!
 docker run -it --rm \
   --env-file .env \
+  -v $(pwd)/config:/app/config \
+  ghcr.io/d0rk4ce/mealie-kitchen-ops:latest
+
+# 3b. Or choose a specific tool directly:
+docker run -it --rm \
+  --env-file .env \
+  -e SCRIPT_TO_RUN=parser \
   -v $(pwd)/config:/app/config \
   ghcr.io/d0rk4ce/mealie-kitchen-ops:latest
 ```
