@@ -1,6 +1,7 @@
 """KitchenOps Auto-Tagger — tags Mealie recipes by cuisine, protein, cheese, and tools."""
 
-import logging, os, re, sys, uuid
+import logging, os, re, sys, time, uuid
+from datetime import datetime
 from typing import Any, Optional
 import yaml
 from rich.console import Console
@@ -20,6 +21,13 @@ console = Console(theme=custom_theme)
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=LOG_LEVEL, format='%(message)s', handlers=[logging.NullHandler()])
 logger = logging.getLogger("tagger")
+
+# File logging
+os.makedirs("logs", exist_ok=True)
+_fh = logging.FileHandler(f"logs/tagger_{datetime.now().strftime('%Y-%m-%d')}.log")
+_fh.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S'))
+logger.addHandler(_fh)
+logger.setLevel(logging.INFO)
 
 DRY_RUN: bool = os.getenv('DRY_RUN', 'true').lower() == 'true'
 DB_TYPE: str = os.getenv('DB_TYPE', 'sqlite').lower().strip()
@@ -213,24 +221,48 @@ def phase_6_report(db: DBWrapper) -> None:
     table.add_column("Cuisine", style="cyan")
     table.add_column("Count", style="green", justify="right")
 
-    p = db.placeholder
-    for cuisine in sorted(SQL_CUISINE_FINGERPRINTS.keys()):
-        slug = _make_slug(cuisine)
-        row = db.execute(f"SELECT COUNT(*) FROM recipes_to_tags WHERE tag_id IN (SELECT id FROM tags WHERE slug = {p})", (slug,)).fetch_one()
-        count = row[0] if row else 0
+    # Single query instead of N+1
+    cuisine_slugs = {_make_slug(c): c for c in SQL_CUISINE_FINGERPRINTS}
+    placeholders = ", ".join([db.placeholder] * len(cuisine_slugs))
+    rows = db.execute(
+        f"SELECT t.slug, COUNT(*) FROM recipes_to_tags rt "
+        f"JOIN tags t ON rt.tag_id = t.id "
+        f"WHERE t.slug IN ({placeholders}) "
+        f"GROUP BY t.slug ORDER BY t.slug",
+        tuple(cuisine_slugs.keys())
+    ).fetch_all()
+
+    for slug, count in (rows or []):
+        name = cuisine_slugs.get(slug, slug)
         if count > 0:
-            table.add_row(cuisine, str(count))
+            table.add_row(name, str(count))
 
     console.print(table)
     
-    row = db.execute("SELECT COUNT(*) FROM recipes WHERE id NOT IN (SELECT recipe_id FROM recipes_to_tags)").fetch_one()
+    row = db.execute(
+        "SELECT COUNT(*) FROM recipes r "
+        "LEFT JOIN recipes_to_tags rt ON r.id = rt.recipe_id "
+        "WHERE rt.recipe_id IS NULL"
+    ).fetch_one()
     untagged = row[0] if row else "?"
     console.print(f"\n[bold red]Untagged Recipes Left:[/bold red] {untagged}")
+
+
+def format_elapsed(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 86400:
+        return f"{s // 86400}d {(s % 86400) // 3600}h {(s % 3600) // 60}m"
+    if s >= 3600:
+        return f"{s // 3600}h {(s % 3600) // 60}m"
+    if s >= 60:
+        return f"{s // 60}m {s % 60}s"
+    return f"{s}s"
 
 
 def main() -> None:
     console.rule("[bold cyan]KitchenOps Auto-Tagger[/bold cyan]")
     console.print(f"DB: {DB_TYPE.upper()} | Dry Run: {DRY_RUN}")
+    logger.info(f"Started | DB: {DB_TYPE.upper()} | Dry Run: {DRY_RUN}")
 
     db = DBWrapper()
     if not db.conn:
@@ -238,6 +270,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
+        start_time = time.time()
         gid = get_group_id(db)
         if not gid:
             console.print("[error]Group ID not found. DB empty or connection failed.[/error]")
@@ -250,6 +283,10 @@ def main() -> None:
         phase_4_text(db, gid)
         phase_5_tools(db, gid)
         phase_6_report(db)
+
+        elapsed = time.time() - start_time
+        console.print(f"\n⏱️  Elapsed: {format_elapsed(elapsed)}")
+        logger.info(f"Complete | Elapsed: {format_elapsed(elapsed)}")
 
     except KeyboardInterrupt:
         console.print("\n[warning]Interrupted by user. Closing database connection...[/warning]")

@@ -37,24 +37,45 @@ if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
     exit 0
 fi
 
-# --- Load saved env if it exists (only fill in blanks) ---
-if [ -f "$ENV_FILE" ]; then
-    while IFS='=' read -r key value; do
-        case "$key" in
-            \#*|"") continue ;;
-        esac
-        eval "current=\$$key"
-        if [ -z "$current" ]; then
-            export "$key=$value"
-        fi
-    done < "$ENV_FILE"
-    # Re-read DATABASE in case DB_TYPE was loaded from saved env
-    DATABASE=${DB_TYPE:-sqlite}
+# --- Auto-detect .env files (item 9) ---
+# Priority: 1) existing environment, 2) .env in current dir, 3) config/.env
+load_env_file() {
+    _file="$1"
+    if [ -f "$_file" ]; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                \#*|"") continue ;;
+            esac
+            eval "current=\$$key"
+            if [ -z "$current" ]; then
+                export "$key=$value"
+            fi
+        done < "$_file"
+    fi
+}
+
+ENV_LOADED=""
+if [ -f ".env" ]; then
+    load_env_file ".env"
+    ENV_LOADED=".env"
 fi
+if [ -f "$ENV_FILE" ]; then
+    load_env_file "$ENV_FILE"
+    if [ -z "$ENV_LOADED" ]; then
+        ENV_LOADED="$ENV_FILE"
+    else
+        ENV_LOADED="$ENV_LOADED + $ENV_FILE"
+    fi
+fi
+# Re-read DATABASE in case DB_TYPE was loaded
+DATABASE=${DB_TYPE:-sqlite}
 
 echo "========================================"
 echo "  KITCHENOPS LAUNCHER v${VERSION}"
 echo "========================================"
+if [ -n "$ENV_LOADED" ]; then
+    echo "  Loaded: $ENV_LOADED"
+fi
 
 # --- Script Selection ---
 if [ -n "$SCRIPT_TO_RUN" ]; then
@@ -169,20 +190,6 @@ if [ -t 0 ]; then
     # DATABASE SETTINGS (only for Tagger or "all")
     # -----------------------------------------------------------
     if [ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]; then
-
-        # Also need API settings if running "all"
-        if [ "$SCRIPT" = "all" ]; then
-            # API settings were already handled above
-            :
-        fi
-
-        # Need Mealie URL for tagger info display even though it uses DB
-        if [ -z "$MEALIE_URL" ] && [ "$SCRIPT" = "tagger" ]; then
-            echo "  ──────────────────────────────────────"
-            echo "  ⚙️  First-Run Setup"
-            echo "  ──────────────────────────────────────"
-            echo ""
-        fi
 
         if [ -z "$DB_TYPE" ]; then
             echo "  ──────────────────────────────────────"
@@ -310,26 +317,23 @@ if [ -t 0 ]; then
         fi
     fi
 
-    # --- Dry Run Prompt ---
-    if [ -z "$DRY_RUN" ]; then
-        echo "  ──────────────────────────────────────"
-        echo "  🛡️  Safety Mode"
-        echo "  ──────────────────────────────────────"
-        echo ""
-        echo "  Dry Run mode lets you preview what KitchenOps would do"
-        echo "  without making any actual changes. Recommended for first run."
-        echo ""
-        printf "  Enable Dry Run? (Y/n): "
-        read input_dry
-        case "$input_dry" in
-            n|N|no|NO) export DRY_RUN="false" ;;
-            *)         export DRY_RUN="true"  ;;
-        esac
-        NEEDS_SAVE=true
-        echo ""
-    fi
+    # --- Dry Run Prompt (always ask) ---
+    echo "  ──────────────────────────────────────"
+    echo "  🛡️  Safety Mode"
+    echo "  ──────────────────────────────────────"
+    echo ""
+    echo "  Dry Run mode lets you preview what KitchenOps would do"
+    echo "  without making any actual changes."
+    echo ""
+    printf "  Enable Dry Run? (Y/n): "
+    read input_dry
+    case "$input_dry" in
+        n|N|no|NO) export DRY_RUN="false" ;;
+        *)         export DRY_RUN="true"  ;;
+    esac
+    echo ""
 
-    # --- Save settings for next time (re-check after dry run prompt) ---
+    # --- Save settings for next time ---
     if [ "$NEEDS_SAVE" = "true" ]; then
         echo "  💾 Saving settings to config/.env..."
         echo "     (Mount -v \$(pwd)/config:/app/config and these load automatically)"
@@ -353,14 +357,46 @@ if [ -t 0 ]; then
     fi
 fi
 
-echo "  Script : $SCRIPT"
-echo "  DB     : $DATABASE"
-echo "  Dry Run: ${DRY_RUN:-true}"
-echo "========================================"
+# ======================================
+# DRY RUN / LIVE MODE BANNER (item 5)
+# ======================================
+DRY_RUN_ACTUAL=${DRY_RUN:-true}
+echo ""
+if [ "$DRY_RUN_ACTUAL" = "true" ]; then
+    echo "  ╔══════════════════════════════════════╗"
+    echo "  ║  🛡️  DRY RUN MODE                    ║"
+    echo "  ║  No changes will be made.            ║"
+    echo "  ║  Set DRY_RUN=false to go live.       ║"
+    echo "  ╚══════════════════════════════════════╝"
+else
+    echo "  ╔══════════════════════════════════════╗"
+    echo "  ║  🔴 LIVE MODE                        ║"
+    echo "  ║  Changes WILL be applied!            ║"
+    echo "  ╚══════════════════════════════════════╝"
+fi
+echo ""
+
+# ======================================
+# PRE-FLIGHT CONFIRMATION (item 1)
+# ======================================
+SCRIPT_LABEL=""
+case "$SCRIPT" in
+    "parser")  SCRIPT_LABEL="🔧 Batch Parser" ;;
+    "cleaner") SCRIPT_LABEL="🧹 Library Cleaner" ;;
+    "tagger")  SCRIPT_LABEL="🏷️  Auto-Tagger" ;;
+    "all")     SCRIPT_LABEL="🚀 Full Suite (Tagger → Cleaner → Parser)" ;;
+esac
+
+echo "  ── Pre-Flight Summary ──────────────────"
+echo ""
+echo "    Tool     : $SCRIPT_LABEL"
+[ -n "$MEALIE_URL" ] && echo "    Mealie   : $MEALIE_URL"
+echo "    Database : $DATABASE"
+echo "    Dry Run  : $DRY_RUN_ACTUAL"
+echo ""
 
 # SAFETY LOCK: Prevent SQLite tagging on a live DB
 if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]); then
-    echo ""
     echo "  ❗ SAFETY ALERT: SQLite Mode"
     echo ""
     echo "  SQLite locks the database file during writes."
@@ -379,33 +415,145 @@ if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all
     echo ""
 fi
 
-case "$SCRIPT" in
-  "tagger")
-    echo "Starting Auto-Tagger..."
-    python3 kitchen_ops_tagger.py
-    ;;
-  "parser")
-    echo "Starting Batch Parser..."
-    python3 kitchen_ops_parser.py
-    ;;
-  "cleaner")
-    echo "Starting Library Cleaner..."
-    python3 kitchen_ops_cleaner.py
-    ;;
-  "all")
-    echo "Running Full Suite (Sequence: Tagger → Cleaner → Parser)..."
-    python3 kitchen_ops_tagger.py
-    python3 kitchen_ops_cleaner.py
-    python3 kitchen_ops_parser.py
-    ;;
-  *)
-    echo "  ❌ Unknown script: $SCRIPT"
+# Final go/no-go
+if [ -t 0 ]; then
+    printf "  Proceed? (Y/n): "
+    read go
+    case "$go" in
+        n|N|no|NO)
+            echo "  ❌ Cancelled."
+            exit 0
+            ;;
+    esac
     echo ""
-    echo "  Available options: tagger, parser, cleaner, all"
-    echo "  Run with --help for more info."
-    exit 1
-    ;;
-esac
+fi
+
+echo "========================================"
+
+# ======================================
+# RUN SCRIPT (with "run again?" loop — item 6)
+# ======================================
+run_script() {
+    case "$SCRIPT" in
+      "tagger")
+        echo "Starting Auto-Tagger..."
+        python3 kitchen_ops_tagger.py
+        ;;
+      "parser")
+        echo "Starting Batch Parser..."
+        python3 kitchen_ops_parser.py
+        ;;
+      "cleaner")
+        echo "Starting Library Cleaner..."
+        python3 kitchen_ops_cleaner.py
+        ;;
+      "all")
+        echo "Running Full Suite (Sequence: Tagger → Cleaner → Parser)..."
+        python3 kitchen_ops_tagger.py
+        python3 kitchen_ops_cleaner.py
+        python3 kitchen_ops_parser.py
+        ;;
+      *)
+        echo "  ❌ Unknown script: $SCRIPT"
+        echo ""
+        echo "  Available options: tagger, parser, cleaner, all"
+        echo "  Run with --help for more info."
+        exit 1
+        ;;
+    esac
+}
+
+# Execute
+START_TIME=$(date +%s)
+run_script
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+
+# Format elapsed time
+if [ $ELAPSED -ge 86400 ]; then
+    DAYS=$((ELAPSED / 86400))
+    HOURS=$(( (ELAPSED % 86400) / 3600 ))
+    MINS=$(( (ELAPSED % 3600) / 60 ))
+    ELAPSED_STR="${DAYS}d ${HOURS}h ${MINS}m"
+elif [ $ELAPSED -ge 3600 ]; then
+    HOURS=$((ELAPSED / 3600))
+    MINS=$(( (ELAPSED % 3600) / 60 ))
+    ELAPSED_STR="${HOURS}h ${MINS}m"
+elif [ $ELAPSED -ge 60 ]; then
+    MINS=$((ELAPSED / 60))
+    SECS=$((ELAPSED % 60))
+    ELAPSED_STR="${MINS}m ${SECS}s"
+else
+    ELAPSED_STR="${ELAPSED}s"
+fi
 
 echo ""
-echo "--- Operation Complete. Container Exiting. ---"
+echo "  ⏱️  Elapsed: $ELAPSED_STR"
+echo ""
+
+# "Run again?" loop (item 6) — only in interactive mode
+if [ -t 0 ]; then
+    while true; do
+        printf "  Run another tool? (y/N): "
+        read again
+        case "$again" in
+            y|Y|yes|YES)
+                echo ""
+                echo "  What would you like to run next?"
+                echo ""
+                echo "    1) 🔧 Batch Parser"
+                echo "    2) 🧹 Library Cleaner"
+                echo "    3) 🏷️  Auto-Tagger"
+                echo "    4) 🚀 Run All"
+                echo "    0) ❌ Exit"
+                echo ""
+                printf "  Enter choice [0-4]: "
+                read choice
+                case "$choice" in
+                    1) SCRIPT="parser"  ;;
+                    2) SCRIPT="cleaner" ;;
+                    3) SCRIPT="tagger"  ;;
+                    4) SCRIPT="all"     ;;
+                    0) echo "  Goodbye!"; exit 0 ;;
+                    *) echo "  ❌ Invalid. Exiting."; exit 1 ;;
+                esac
+                echo ""
+                printf "  Dry Run? (y/N): "
+                read dr
+                case "$dr" in
+                    y|Y|yes|YES) export DRY_RUN="true"  ;;
+                    *)           export DRY_RUN="false" ;;
+                esac
+                echo ""
+                START_TIME=$(date +%s)
+                run_script
+                END_TIME=$(date +%s)
+                ELAPSED=$((END_TIME - START_TIME))
+                if [ $ELAPSED -ge 86400 ]; then
+                    DAYS=$((ELAPSED / 86400))
+                    HOURS=$(( (ELAPSED % 86400) / 3600 ))
+                    MINS=$(( (ELAPSED % 3600) / 60 ))
+                    ELAPSED_STR="${DAYS}d ${HOURS}h ${MINS}m"
+                elif [ $ELAPSED -ge 3600 ]; then
+                    HOURS=$((ELAPSED / 3600))
+                    MINS=$(( (ELAPSED % 3600) / 60 ))
+                    ELAPSED_STR="${HOURS}h ${MINS}m"
+                elif [ $ELAPSED -ge 60 ]; then
+                    MINS=$((ELAPSED / 60))
+                    SECS=$((ELAPSED % 60))
+                    ELAPSED_STR="${MINS}m ${SECS}s"
+                else
+                    ELAPSED_STR="${ELAPSED}s"
+                fi
+                echo ""
+                echo "  ⏱️  Elapsed: $ELAPSED_STR"
+                echo ""
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+fi
+
+echo "--- KitchenOps Complete. Goodbye! ---"

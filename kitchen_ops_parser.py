@@ -1,13 +1,14 @@
 """KitchenOps Batch Parser — fixes unparsed recipe ingredients via Mealie's NLP API."""
 
-import concurrent.futures, json, logging, os, signal, sys, threading
+import concurrent.futures, json, logging, os, signal, sys, threading, time
+from datetime import datetime
 from typing import Any, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn, TimeElapsedColumn
 from rich.theme import Theme
 
 # Rich Console Setup
@@ -23,13 +24,29 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=LOG_LEVEL, format='%(message)s', handlers=[logging.NullHandler()])
 logger = logging.getLogger("parser")
 
+# File logging
+os.makedirs("logs", exist_ok=True)
+_fh = logging.FileHandler(f"logs/parser_{datetime.now().strftime('%Y-%m-%d')}.log")
+_fh.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S'))
+logger.addHandler(_fh)
+logger.setLevel(logging.INFO)
+
 MEALIE_URL: str = os.getenv("MEALIE_URL", "http://localhost:9000").rstrip("/")
 API_TOKEN: str = os.getenv("MEALIE_API_TOKEN", "")
-MAX_WORKERS: int = int(os.getenv("PARSER_WORKERS", "2"))
+MAX_WORKERS: int = int(os.getenv("PARSER_WORKERS", "8"))
 DRY_RUN: bool = os.getenv("DRY_RUN", "true").lower() == "true"
 CONFIDENCE_THRESHOLD: float = 0.85
 HISTORY_FILE: str = "parse_history.json"
 SAVE_INTERVAL: int = 20
+
+# Database config (optional — enables fast startup)
+DB_TYPE: str = os.getenv('DB_TYPE', '').lower().strip()
+SQLITE_PATH: str = os.getenv('SQLITE_PATH', '/app/data/mealie.db')
+PG_DB: str = os.getenv('POSTGRES_DB', 'mealie')
+PG_USER: str = os.getenv('POSTGRES_USER', 'mealie')
+PG_PASS: str = os.getenv('POSTGRES_PASSWORD', 'mealie')
+PG_HOST: str = os.getenv('POSTGRES_HOST', 'postgres')
+PG_PORT: str = os.getenv('POSTGRES_PORT', '5432')
 
 FOOD_CACHE: dict[str, str] = {}
 UNIT_CACHE: dict[str, str] = {}
@@ -80,6 +97,44 @@ def save_history() -> None:
             console.print(f"[error]Could not save history: {e}[/error]")
 
 
+def connect_db() -> Optional[object]:
+    """Try to connect to the database. Returns connection or None."""
+    if not DB_TYPE:
+        return None
+    try:
+        if DB_TYPE == "postgres":
+            import psycopg2
+            conn = psycopg2.connect(dbname=PG_DB, user=PG_USER, password=PG_PASS, host=PG_HOST, port=PG_PORT)
+            conn.autocommit = True
+            return conn
+        elif DB_TYPE == "sqlite":
+            import sqlite3
+            conn = sqlite3.connect(SQLITE_PATH)
+            return conn
+    except Exception as e:
+        console.print(f"[warning]DB connection failed, falling back to API: {e}[/warning]")
+    return None
+
+
+def prime_cache_db(conn) -> bool:
+    """Prime the cache using direct SQL queries (Fast). Returns True on success."""
+    try:
+        cursor = conn.cursor()
+        with CACHE_LOCK:
+            # Fetch Foods - Verified table name from tagger is 'ingredient_foods'
+            # We skip 'units' here because table name is uncertain (maybe 'ingredient_units'?) 
+            # and it's small enough (~700 items) to fetch via API quickly.
+            cursor.execute("SELECT id, name FROM ingredient_foods")
+            for fid, name in cursor.fetchall():
+                FOOD_CACHE[name.lower().strip()] = fid
+        
+        console.print(f"[info]DB Cache ready: {len(FOOD_CACHE)} foods loaded from SQL.[/info]")
+        return True
+    except Exception as e:
+        console.print(f"[warning]DB Cache Prime failed ({e}), falling back to API...[/warning]")
+        return False
+
+
 def prime_cache() -> None:
     with console.status("[bold green]Prime Cache: Fetching foods & units...[/bold green]", spinner="dots"):
         session = requests.Session()
@@ -90,7 +145,9 @@ def prime_cache() -> None:
         while True:
             try:
                 r = session.get(f"{MEALIE_URL}/api/units?page={page}&perPage=2000", timeout=10)
-                data = r.json() if r.status_code == 200 else {}
+                if r.status_code != 200:
+                    break
+                data = r.json()
                 items = data.get("items", [])
                 if not items:
                     break
@@ -108,7 +165,9 @@ def prime_cache() -> None:
         while True:
             try:
                 r = session.get(f"{MEALIE_URL}/api/foods?page={page}&perPage=2000", timeout=10)
-                data = r.json() if r.status_code == 200 else {}
+                if r.status_code != 200:
+                    break
+                data = r.json()
                 items = data.get("items", [])
                 if not items:
                     break
@@ -122,6 +181,40 @@ def prime_cache() -> None:
     console.print(f"[info]Cache ready: {len(FOOD_CACHE)} foods, {len(UNIT_CACHE)} units.[/info]")
 
 
+def get_recipes_needing_parsing_db(conn) -> Optional[list[dict]]:
+    """
+    Fetch only recipes that actually have unparsed ingredients.
+    This replaces downloading 100k recipes just to filter them in Python.
+    Returns list of dicts with 'slug' key, or None if failed.
+    """
+    try:
+        cursor = conn.cursor()
+        console.print("[bold green]DB Scan: Finding recipes with unparsed ingredients...[/bold green]")
+        
+        # We need recipes where at least one ingredient is loose text (no food_id AND no unit_id AND not a note)
+        # Note checking is tricky in SQL across dialects, but generally if it has no food_id it's a candidate.
+        # However, purely note ingredients effectively have no food_id too.
+        # A safer bet for "unparsed" is usually just missing food_id, as standard lines get parsed into food/unit.
+        
+        # Tries 'recipes_ingredients' (standard per tagger code)
+        query = """
+            SELECT DISTINCT r.slug 
+            FROM recipes r
+            JOIN recipes_ingredients ri ON r.id = ri.recipe_id
+            WHERE ri.food_id IS NULL
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        # We return a list of dicts to match what get_all_recipes returns (conceptually)
+        # though process_recipe only needs the slug.
+        return [{"slug": r[0]} for r in rows]
+        
+    except Exception as e:
+        console.print(f"[warning]DB Candidate Scan failed ({e}), falling back to API...[/warning]")
+        return None
+
+
 def get_all_recipes() -> list[dict]:
     session = requests.Session()
     session.headers.update({"Authorization": f"Bearer {API_TOKEN}"})
@@ -132,9 +225,12 @@ def get_all_recipes() -> list[dict]:
         while True:
             try:
                 r = session.get(f"{MEALIE_URL}/api/recipes?page={page}&perPage=2000", timeout=15)
-                if r.status_code != 200 or not r.json().get("items"):
+                if r.status_code != 200:
                     break
-                recipes.extend(r.json().get("items", []))
+                items = r.json().get("items", [])
+                if not items:
+                    break
+                recipes.extend(items)
                 page += 1
             except requests.RequestException as e:
                 console.print(f"[warning]Index fetch failed page {page}: {e}[/warning]")
@@ -244,29 +340,91 @@ def process_recipe(slug: str) -> bool:
         return False
 
 
+def format_elapsed(seconds: float) -> str:
+    s = int(seconds)
+    if s >= 86400:
+        return f"{s // 86400}d {(s % 86400) // 3600}h {(s % 3600) // 60}m"
+    if s >= 3600:
+        return f"{s // 3600}h {(s % 3600) // 60}m"
+    if s >= 60:
+        return f"{s // 60}m {s % 60}s"
+    return f"{s}s"
+
+
 if __name__ == "__main__":
     console.rule("[bold cyan]KitchenOps Batch Parser[/bold cyan]")
     console.print(f"Mealie: [underline]{MEALIE_URL}[/underline] | Workers: {MAX_WORKERS} | Dry Run: {DRY_RUN}")
+    logger.info(f"Started | Mealie: {MEALIE_URL} | Workers: {MAX_WORKERS} | Dry Run: {DRY_RUN}")
 
     if not API_TOKEN:
         console.print("[error]MEALIE_API_TOKEN is not set. Cannot proceed.[/error]")
         sys.exit(1)
 
-    prime_cache()
+    start_time = time.time()
+    
+    # DB Acceleration Strategy
+    db_conn = connect_db()
+    candidates = None
+    
+    if db_conn:
+        console.print(f"[info]DB Connection established ({DB_TYPE}). Accelerated mode active.[/info]")
+        
+        # 1. Prime Cache via DB (Foods only)
+        if prime_cache_db(db_conn):
+            # Manually fetch units via API since we skipped them in DB
+            with console.status("[bold green]Fetching units via API...[/bold green]", spinner="dots"):
+                 # Mini-routine to just fetch units
+                session = requests.Session()
+                session.headers.update({"Authorization": f"Bearer {API_TOKEN}"})
+                page = 1
+                while True:
+                    try:
+                        r = session.get(f"{MEALIE_URL}/api/units?page={page}&perPage=2000", timeout=10)
+                        if r.status_code != 200: break
+                        items = r.json().get("items", [])
+                        if not items: break
+                        with CACHE_LOCK:
+                            for item in items:
+                                UNIT_CACHE[item["name"].lower().strip()] = item["id"]
+                                if item.get("pluralName"):
+                                    UNIT_CACHE[item["pluralName"].lower().strip()] = item["id"]
+                        page += 1
+                    except requests.RequestException:
+                        break
+        else:
+            prime_cache() # Full API fallback if food fetch failed
+            
+        # 2. Get Candidates via DB
+        candidates = get_recipes_needing_parsing_db(db_conn)
+        db_conn.close()
+    
+    # Fallback if DB failed or not configured
+    if candidates is None:
+        if not db_conn:
+            prime_cache()
+            
+        candidates = get_all_recipes()
+
     HISTORY_SET = load_history()
-    candidates = get_all_recipes()
     todo = [r for r in candidates if r["slug"] not in HISTORY_SET]
     
+    console.print(f"[info]Recipes: {len(candidates)} total, {len(HISTORY_SET)} already done, {len(todo)} remaining[/info]")
+    logger.info(f"Recipes: {len(candidates)} total, {len(HISTORY_SET)} done, {len(todo)} remaining")
+
     if not todo:
         console.print("[success]All recipes parsed! Nothing to do.[/success]")
         sys.exit(0)
 
     count = 0
+    failed = 0
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TextColumn("•"),
+        TimeRemainingColumn(),
         console=console
     ) as progress:
         task = progress.add_task(f"Parsing {len(todo)} recipes...", total=len(todo))
@@ -280,12 +438,23 @@ if __name__ == "__main__":
                         with HISTORY_LOCK:
                             HISTORY_SET.add(slug)
                         count += 1
+                        logger.info(f"OK: {slug}")
                         if count % SAVE_INTERVAL == 0:
                             save_history()
-                except Exception:
-                    pass
+                    else:
+                        failed += 1
+                        logger.info(f"FAIL: {slug}")
+                except Exception as e:
+                    failed += 1
+                    logger.info(f"ERROR: {slug} — {e}")
                 progress.advance(task)
 
+    elapsed = time.time() - start_time
     save_history()
     console.rule("[bold green]Batch Parse Complete[/bold green]")
-    console.print(f"Processed: [green]{count}[/green]/[cyan]{len(todo)}[/cyan]")
+    console.print(f"Processed: [green]{count}[/green] | Failed: [red]{failed}[/red] | Total: [cyan]{len(todo)}[/cyan]")
+    console.print(f"⏱️  Elapsed: {format_elapsed(elapsed)}")
+    if count > 0:
+        rate = count / (elapsed / 60) if elapsed > 0 else 0
+        console.print(f"📊 Rate: {rate:.1f} recipes/min")
+    logger.info(f"Complete | OK: {count} | Failed: {failed} | Elapsed: {format_elapsed(elapsed)}")
