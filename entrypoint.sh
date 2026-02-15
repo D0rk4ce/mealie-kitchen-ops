@@ -330,6 +330,7 @@ if [ -t 0 ]; then
     if [ "$NEEDS_SAVE" = "true" ]; then
         echo "  💾 Saving settings to config/.env..."
         echo "     (Mount -v \$(pwd)/config:/app/config and these load automatically)"
+        mkdir -p "$(dirname "$ENV_FILE")"
         {
             echo "# KitchenOps — Auto-generated settings"
             echo "# Saved on $(date '+%Y-%m-%d %H:%M:%S')"
