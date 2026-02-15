@@ -251,6 +251,8 @@ def main() -> None:
         phase_5_tools(db, gid)
         phase_6_report(db)
 
+    except KeyboardInterrupt:
+        console.print("\n[warning]Interrupted by user. Closing database connection...[/warning]")
     except Exception as e:
         console.print_exception(show_locals=True)
     finally:

@@ -4,6 +4,9 @@ DATABASE=${DB_TYPE:-sqlite}
 VERSION="1.0.0"
 ENV_FILE="/app/config/.env"
 
+# Graceful exit on Ctrl+C or termination
+trap 'echo ""; echo "  ⛔ Interrupted. Exiting gracefully."; exit 130' INT TERM
+
 # --- Help / Version Flags ---
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "KitchenOps v${VERSION} — Automation Suite for Mealie"
