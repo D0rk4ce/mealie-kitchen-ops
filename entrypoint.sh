@@ -78,23 +78,25 @@ if [ -n "$ENV_LOADED" ]; then
 fi
 
 # --- Script Selection ---
-if [ -n "$SCRIPT_TO_RUN" ]; then
-    SCRIPT="$SCRIPT_TO_RUN"
-elif [ -t 0 ]; then
+
+show_menu() {
     echo ""
     echo "  What would you like to do?"
     echo ""
     echo "    1) 🔧 Batch Parser"
     echo "       Fix unparsed ingredients using Mealie's NLP engine."
-    echo "       Requires: API only   |  Speed: Slow (days for large libraries)"
+    echo "       • Requires: API Token"
+    echo "       • Speed:    Slow (API) | ⚡ Fast (Postgres Accelerator)"
     echo ""
     echo "    2) 🧹 Library Cleaner"
     echo "       Remove junk content and broken recipes automatically."
-    echo "       Requires: API only   |  Speed: Medium"
+    echo "       • Requires: API Token"
+    echo "       • Speed:    Medium (API) | ⚡ Instant (Postgres Accelerator)"
     echo ""
     echo "    3) 🏷️  Auto-Tagger"
     echo "       Tag recipes by cuisine, protein, cheese, and kitchen tools."
-    echo "       Requires: DATABASE   |  Speed: Blazing fast (1000s/min)"
+    echo "       • Requires: DB Connection (SQLite or Postgres)"
+    echo "       • Speed:    ⚡ Blazing Fast (1000s/min)"
     echo ""
     echo "    4) 🚀 Run All"
     echo "       Execute the full suite: Tagger → Cleaner → Parser"
@@ -102,6 +104,12 @@ elif [ -t 0 ]; then
     echo "    0) ❌ Exit"
     echo ""
     printf "  Enter choice [0-4]: "
+}
+
+if [ -n "$SCRIPT_TO_RUN" ]; then
+    SCRIPT="$SCRIPT_TO_RUN"
+elif [ -t 0 ]; then
+    show_menu
     read choice
     case "$choice" in
         1) SCRIPT="parser"  ;;
@@ -198,6 +206,9 @@ if [ -t 0 ]; then
             echo ""
             echo "  The Auto-Tagger connects directly to Mealie's database"
             echo "  for maximum speed. Which database does your Mealie use?"
+            echo ""
+            echo "  💡 TIP: Selecting 'postgres' unlocks FAST STARTUP for"
+            echo "     the Parser and Cleaner too! (Accelerator Mode)"
             echo ""
             echo "    sqlite   — Default for most installs. Uses a .db file."
             echo "    postgres — Used by larger or production setups."
@@ -498,16 +509,7 @@ if [ -t 0 ]; then
         read again
         case "$again" in
             y|Y|yes|YES)
-                echo ""
-                echo "  What would you like to run next?"
-                echo ""
-                echo "    1) 🔧 Batch Parser"
-                echo "    2) 🧹 Library Cleaner"
-                echo "    3) 🏷️  Auto-Tagger"
-                echo "    4) 🚀 Run All"
-                echo "    0) ❌ Exit"
-                echo ""
-                printf "  Enter choice [0-4]: "
+                show_menu
                 read choice
                 case "$choice" in
                     1) SCRIPT="parser"  ;;
