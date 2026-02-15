@@ -98,13 +98,8 @@ def save_history() -> None:
 
 
 def connect_db() -> Optional[object]:
-    """Try to connect to the database. Returns connection or None."""
+    """Try to connect to the database (Postgres or SQLite). Returns connection or None."""
     if not DB_TYPE:
-        return None
-    
-    # SAFETY: Only allow Postgres for concurrent read/write operations
-    # SQLite has poor concurrency and risks locking/corruption if Mealie is running.
-    if DB_TYPE == "sqlite":
         return None
 
     try:
@@ -113,8 +108,20 @@ def connect_db() -> Optional[object]:
             conn = psycopg2.connect(dbname=PG_DB, user=PG_USER, password=PG_PASS, host=PG_HOST, port=PG_PORT)
             conn.autocommit = True
             return conn
+            
+        elif DB_TYPE == "sqlite":
+            import sqlite3
+            if not os.path.exists(SQLITE_PATH):
+                console.print(f"[warning]SQLite DB not found at {SQLITE_PATH}[/warning]")
+                return None
+            
+            # Connect in Read-Only mode if possible (URI) specific to sqlite3
+            # But standard connect is fine as we only SELECT.
+            conn = sqlite3.connect(f"file:{SQLITE_PATH}?mode=ro", uri=True)
+            return conn
+            
     except Exception as e:
-        console.print(f"[warning]DB connection failed, falling back to API: {e}[/warning]")
+        console.print(f"[warning]DB connection failed ({DB_TYPE}), falling back to API: {e}[/warning]")
     return None
 
 

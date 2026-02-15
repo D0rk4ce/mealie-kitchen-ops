@@ -208,23 +208,36 @@ def check_integrity(recipe: dict) -> Optional[tuple]:
 
 
 def connect_db() -> Optional[object]:
-    """Try to connect to the database. Returns connection or None."""
+    """Try to connect to the database (Postgres or SQLite). Returns connection or None."""
     if not DB_TYPE:
         return None
-    
-    # SAFETY: Only allow Postgres for concurrent read/write operations
-    # SQLite has poor concurrency and risks locking/corruption if Mealie is running.
-    if DB_TYPE == "sqlite":
-        return None
+
+    # SAFETY: SQLite is safe here because we open in READ-ONLY mode.
+    # The entrypoint script also ensures Mealie is STOPPED if user runs 'Run All'.
+    # Even if Mealie is running, read-only mode prevents corruption.
 
     try:
         if DB_TYPE == "postgres":
             import psycopg2
             conn = psycopg2.connect(dbname=PG_DB, user=PG_USER, password=PG_PASS, host=PG_HOST, port=PG_PORT)
             conn.autocommit = True
+            console.print("[dim]  DB: Connected to Postgres (Accelerated Mode)[/dim]")
             return conn
+            
+        elif DB_TYPE == "sqlite":
+            import sqlite3
+            if not os.path.exists(SQLITE_PATH):
+                console.print(f"[warning]SQLite DB not found at {SQLITE_PATH}[/warning]")
+                return None
+            
+            # Connect in Read-Only mode (URI)
+            # This is critical for safety if Mealie happens to be running.
+            conn = sqlite3.connect(f"file:{SQLITE_PATH}?mode=ro", uri=True)
+            console.print("[dim]  DB: Connected to SQLite (Read-Only Accelerated Mode)[/dim]")
+            return conn
+            
     except Exception as e:
-        console.print(f"[warning]DB connection failed, falling back to API: {e}[/warning]")
+        console.print(f"[warning]DB connection failed ({DB_TYPE}), falling back to API: {e}[/warning]")
     return None
 
 
