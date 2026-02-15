@@ -13,13 +13,23 @@ KitchenOps is a production-ready set of maintenance tools for [Mealie](https://m
 
 | Tool | Script | Method | Complexity | Speed | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Batch Parser** "The Fixer" | `kitchen_ops_parser.py` | Mealie API | **Simple** | **Slowest** | Uses Mealie's NLP + OpenAI fallback. Can take days (or a week for massive 70k+ libraries). |
-| **Library Cleaner** "The Janitor" | `kitchen_ops_cleaner.py` | Mealie API | **Simple** | **Medium** | Scans metadata via API. Safe and effective. |
-| **Auto-Tagger** "The Organizer" | `kitchen_ops_tagger.py` | Direct SQL | **Advanced** | **Fastest** | Direct DB regex matching. Processes 1000s of recipes per minute. |
+- **🧹 Auto-Cleaner:** Removes junk recipes, broken content, and listicles.
+- **🏷️ Auto-Tagger:** Tags recipes by cuisine, protein, cheese, etc. (Direct DB Access).
+- **🔧 Batch Parser:** Fixes unparsed ingredients using Mealie's NLP engine.
+- **⚡ DB Accelerator:** 
+  - Massive speedup for finding unparsed recipes (~20m → <1s)
+  - Instant library scanning for Cleaner (~7h → <1s)
+  - **Works with configured Postgres OR SQLite (Read-Only)**
+- **🛡️ Safety First:**
+  - **Dry Run** by default.
+  - **Tagger Safety:** Auto-stops/starts Mealie to prevent SQLite corruption.
+  - **Liveness Check:** Ensures Mealie is offline before DB writes.
+- **✨ Setup Wizard:** Interactive CLI guides you through first-run configuration.
+- **🔄 Smart Workflow:** "Run All" command handles the entire pipeline in one go.
 
 > [!TIP]
-> **Performance Tip:** While the Parser and Cleaner *can* run with just an API token, configuring a **Postgres Database** (below) triggers **Accelerator Mode**, reducing startup times from hours to seconds (1000x faster).
-> *Note: Accelerator Mode is disabled for SQLite to prevent database locking.*
+> **Performance Tip:** Configuring a Database (SQLite or Postgres) triggers **Accelerator Mode**, reducing startup times from hours to seconds (1000x faster).
+> *Note: SQLite acceleration uses **Read-Only** mode to ensure safety.*
 
 ---
 
@@ -106,21 +116,21 @@ KitchenOps uses **direct SQL** to achieve blazing speed.
 > *   **Tagger:** Required (1000s recipes/min). Works with SQLite or Postgres.
 > *   **Parser/Cleaner:** Optional (Enables "Accelerator Mode"). **Postgres Only**.
 
-### 📂 SQLite (The "Sandwich" Command)
+### 📂 SQLite (Default)
 
-> [!CAUTION]
-> **CRITICAL: SQLite corruption risk.**
-> Because SQLite locks the database file, running the **Tagger** while Mealie is active **will result in database corruption.** The KitchenOps launcher includes a safety prompt, but you should always manually stop your container first.
+> [!IMPORTANT]
+> **SQLite Safety:** The Tagger writes to the database file. To prevent corruption, Mealie must be stopped during tagging.
+> 
+> **KitchenOps handles this automatically!**
+> When you run the Tagger (or "Run All"), the script will:
+> 1. Detect if Mealie is running.
+> 2. Offer to stop it automatically.
+> 3. Run the tools safely.
+> 4. Restart Mealie for you.
+>
+> You don't need to manually stop containers anymore. 🚀
 
-**The Sandwich** — stop Mealie, run KitchenOps, restart Mealie:
-```bash
-docker stop mealie && \
-  docker run -it --rm --env-file .env \
-  -v /path/to/mealie/data:/app/data \
-  -v $(pwd)/config:/app/config \
-  ghcr.io/d0rk4ce/mealie-kitchen-ops:latest && \
-  docker start mealie
-```
+### 🐘 Postgres (Advanced)
 
 ---
 
