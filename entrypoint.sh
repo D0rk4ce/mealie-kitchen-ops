@@ -131,6 +131,57 @@ else
     SCRIPT="parser"
 fi
 
+# --- Helper Functions for Auto-Stop/Start ---
+
+docker_available() {
+    command -v docker >/dev/null 2>&1
+}
+
+stop_mealie() {
+    echo "  🛑 Stopping Mealie container..."
+    if docker stop mealie >/dev/null 2>&1; then
+        echo "     ✅ Mealie stopped."
+        return 0
+    else
+        echo "     ❌ Failed to stop Mealie. Do you have permission?"
+        return 1
+    fi
+}
+
+start_mealie() {
+    echo "  🟢 Starting Mealie container..."
+    if docker start mealie >/dev/null 2>&1; then
+        echo "     ✅ Mealie started."
+        return 0
+    else
+        echo "     ❌ Failed to start Mealie."
+        return 1
+    fi
+}
+
+wait_for_mealie() {
+    echo "  ⏳ Waiting for Mealie API to come online..."
+    echo "     (URL: $MEALIE_URL)"
+    
+    # Retry loop: 30 attempts, 2s sleep (60s timeout)
+    count=0
+    while [ $count -lt 30 ]; do
+        STATUS=$(python3 -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
+        if [ "$STATUS" = "UP" ]; then
+            echo "     ✅ Mealie is online!"
+            return 0
+        fi
+        printf "."
+        sleep 2
+        count=$((count + 1))
+    done
+    
+    echo ""
+    echo "  ❌ Timed out waiting for Mealie."
+    return 1
+}
+
+
 # ======================================
 # FIRST-RUN SETUP WIZARD
 # Only triggers in interactive mode when required vars are missing.
@@ -407,46 +458,74 @@ echo "    Dry Run  : $DRY_RUN_ACTUAL"
 echo ""
 
 # SAFETY LOCK: Prevent SQLite tagging on a live DB
-if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]); then
-    echo "  ❗ SAFETY ALERT: SQLite Mode"
-    echo ""
-    echo "  SQLite locks the database file during writes."
-    echo "  Running the Tagger while Mealie is active WILL"
-    echo "  corrupt your database."
-    echo ""
+# SAFETY LOCK: Prevent SQLite tagging on a live DB
+check_safety() {
+    MEALIE_WAS_STOPPED="false"
     
-    # LIVENESS CHECK: If MEALIE_URL is set, verify it's down
-    if [ -n "$MEALIE_URL" ]; then
-        echo "  🔍 Checking if Mealie is running at $MEALIE_URL ..."
-        # Python one-liner to check connectivity (avoids needing curl)
-        STATUS=$(python3 -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
+    # Only need to check if using SQLite and running a DB-writing tool
+    if [ "$DATABASE" = "sqlite" ] && ([ "$SCRIPT" = "tagger" ] || [ "$SCRIPT" = "all" ]); then
+        echo "  ❗ SAFETY ALERT: SQLite Mode"
+        echo ""
+        echo "  SQLite locks the database file during writes."
+        echo "  Running the Tagger while Mealie is active WILL"
+        echo "  corrupt your database."
+        echo ""
         
-        if [ "$STATUS" = "UP" ]; then
-            echo ""
-            echo "  ❌ FATAL: MEALIE IS RUNNING!"
-            echo "     Received response from $MEALIE_URL"
-            echo ""
-            echo "     You MUST stop Mealie before running the Tagger with SQLite."
-            echo "     Run: 'docker stop mealie' and try again."
-            echo ""
-            exit 1
-        else
-            echo "     ✅ Mealie appears to be down (or unreachable). Good."
-            echo ""
+        # LIVENESS CHECK: If MEALIE_URL is set, verify it's down
+        if [ -n "$MEALIE_URL" ]; then
+            echo "  🔍 Checking if Mealie is running at $MEALIE_URL ..."
+            # Python one-liner to check connectivity
+            STATUS=$(python3 -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
+            
+            if [ "$STATUS" = "UP" ]; then
+                echo "     ❌ MEALIE IS RUNNING!"
+                echo ""
+                
+                # Auto-Stop Offer
+                if docker_available; then
+                    printf "  🔄 Would you like to stop Mealie automatically? (y/N): "
+                    read auto_stop
+                    if [ "$auto_stop" = "y" ] || [ "$auto_stop" = "Y" ]; then
+                        if stop_mealie; then
+                            MEALIE_WAS_STOPPED="true"
+                        else
+                            echo "  ❌ Could not stop Mealie. Please stop it manually."
+                            exit 1
+                        fi
+                    else
+                        echo "  ❌ Aborted. Please stop Mealie manually before proceeding."
+                        exit 1
+                    fi
+                else
+                    echo "  ❌ You must stop Mealie before running the Tagger with SQLite."
+                    echo "     Run: 'docker stop mealie' and try again."
+                    exit 1
+                fi
+            else
+                echo "     ✅ Mealie is down. Safe to proceed."
+            fi
         fi
+         
+        # Double check confirmation if NOT auto-stopped (manual stop)
+        if [ "$MEALIE_WAS_STOPPED" = "false" ] && [ "$STATUS" != "UP" ]; then
+             # We already checked status above, so we are good.
+             # But if no URL was set, we still prompt.
+             if [ -z "$MEALIE_URL" ]; then
+                echo "  Please stop Mealie first:  docker stop mealie"
+                printf "  Have you stopped Mealie? (y/N): "
+                read confirmed
+                if [ "$confirmed" != "y" ] && [ "$confirmed" != "Y" ]; then
+                    echo "  ❌ Cancelled. Your database is safe."
+                    exit 1
+                fi
+             fi
+        fi
+        echo ""
     fi
+}
 
-    echo "  Please stop Mealie first:  docker stop mealie"
-    echo "  You can restart it after:  docker start mealie"
-    echo ""
-    printf "  Have you stopped Mealie? (y/N): "
-    read confirmed
-    if [ "$confirmed" != "y" ] && [ "$confirmed" != "Y" ]; then
-        echo "  ❌ Cancelled. Your database is safe."
-        exit 1
-    fi
-    echo ""
-fi
+# Run safety check for first run
+check_safety
 
 # Final go/no-go
 if [ -t 0 ]; then
@@ -471,21 +550,54 @@ run_script() {
       "tagger")
         echo "Starting Auto-Tagger..."
         python3 kitchen_ops_tagger.py
+        
+        # If we auto-stopped Mealie, offer to restart it
+        if [ "$MEALIE_WAS_STOPPED" = "true" ]; then
+            echo ""
+            printf "  🔄 Restart Mealie now? (Y/n): "
+            read restart
+            if [ "$restart" != "n" ] && [ "$restart" != "N" ]; then
+                start_mealie
+            fi
+        fi
         ;;
+        
       "parser")
         echo "Starting Batch Parser..."
         python3 kitchen_ops_parser.py
         ;;
+        
       "cleaner")
         echo "Starting Library Cleaner..."
         python3 kitchen_ops_cleaner.py
         ;;
+        
       "all")
         echo "Running Full Suite (Sequence: Tagger → Cleaner → Parser)..."
+        
+        # 1. Tagger (DB Ops in SQLite safe mode)
         python3 kitchen_ops_tagger.py
+        
+        # 2. Restart Mealie if we stopped it (Required for Cleaner/Parser)
+        if [ "$MEALIE_WAS_STOPPED" = "true" ]; then
+            echo ""
+            echo "  🔄 Restarting Mealie for API tools (Cleaner/Parser)..."
+            if start_mealie; then
+                if ! wait_for_mealie; then
+                    echo "  ❌ Skipping Cleaner/Parser because Mealie is unreachable."
+                    return
+                fi
+            else
+                echo "  ❌ Skipping Cleaner/Parser because Mealie failed to start."
+                return
+            fi
+        fi
+        
+        # 3. Cleaner & Parser (API Ops)
         python3 kitchen_ops_cleaner.py
         python3 kitchen_ops_parser.py
         ;;
+        
       *)
         echo "  ❌ Unknown script: $SCRIPT"
         echo ""
@@ -549,6 +661,10 @@ if [ -t 0 ]; then
                     *)           export DRY_RUN="false" ;;
                 esac
                 echo ""
+                
+                # Check safety again for the new script selection
+                check_safety
+                
                 START_TIME=$(date +%s)
                 run_script
                 END_TIME=$(date +%s)
