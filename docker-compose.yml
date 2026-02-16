@@ -5,5 +5,5 @@ services:
     env_file: .env
     # The volumes below are examples. Users must update them to match their setup.
     volumes:
-      - ./data:/app/data  # For SQLite users: Mount the folder containing mealie.db
+      - ./data:/app/data:z # For SQLite users: Mount the folder containing mealie.db
     restart: no

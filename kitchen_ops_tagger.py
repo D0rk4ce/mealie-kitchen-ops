@@ -73,6 +73,24 @@ class DBWrapper:
             self.cursor = self.conn.cursor()
         except Exception as e:
             console.print(f"[error]Database connection failed: {e}[/error]")
+            
+            # Diagnostic for SQLite
+            if self.type == "sqlite":
+                console.print(f"[warning]Diagnostics for {SQLITE_PATH}:[/warning]")
+                if not os.path.exists(SQLITE_PATH):
+                    console.print(f"  ❌ File not found. Check your volume mount in docker-compose.yml.")
+                    console.print(f"     Expected: /app/data/mealie.db (inside container)")
+                else:
+                    console.print(f"  ✅ File exists.")
+                    if not os.access(SQLITE_PATH, os.R_OK):
+                        console.print(f"  ❌ File is not readable. Check permissions.")
+                    if not os.access(SQLITE_PATH, os.W_OK):
+                        console.print(f"  ❌ File is not writable. Check permissions.")
+                    
+                    # SELinux / Ownership Hint
+                    console.print(f"  💡 Hint: If you use Podman/Fedora, you may need the ':z' suffix on your volume.")
+                    console.print(f"     Example: - ./data:/app/data:z")
+
             self.conn = None
 
     @property

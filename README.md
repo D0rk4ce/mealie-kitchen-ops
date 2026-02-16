@@ -105,6 +105,24 @@ Run `--help` for a full usage guide:
 docker run --rm ghcr.io/d0rk4ce/mealie-kitchen-ops:latest --help
 ```
 
+```
+
+### 📦 Quick Start (Podman)
+
+Podman users (Fedora/Bazzite) often need the `:z` suffix for SELinux compatibility.
+
+```bash
+# 1. Create your .env file
+cp .env.example .env
+# Edit .env with your settings
+
+# 2. Run interactively
+podman run -it --rm \
+  --env-file .env \
+  -v $(pwd)/config:/app/config:z \
+  ghcr.io/d0rk4ce/mealie-kitchen-ops:latest
+```
+
 ---
 
 ## 🗄️ Database Setup (Accelerator & Tagger)
@@ -193,6 +211,7 @@ export $(grep -v '^#' .env | xargs) && python3 kitchen_ops_tagger.py
 | `connection refused` (Postgres) | Check `pg_hba.conf` and `postgresql.conf` on the DB server. Ensure the port is open in your firewall. |
 | `database is locked` (SQLite) | Mealie is still running. Stop it first: `docker stop mealie` |
 | `Failed to load config/tagging.yaml` | Ensure you are running the script from the project root or that the `config/` directory is mounted correctly in Docker. |
+| `Permission denied` (Podman) | SELinux is blocking access. ensure you use the `:z` suffix on your volume mounts (e.g. `-v ./data:/app/data:z`). |
 
 ---
 

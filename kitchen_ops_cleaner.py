@@ -228,7 +228,15 @@ def connect_db() -> Optional[object]:
             import sqlite3
             if not os.path.exists(SQLITE_PATH):
                 console.print(f"[warning]SQLite DB not found at {SQLITE_PATH}[/warning]")
+                console.print(f"  ❌ File not found. Check your volume mount in docker-compose.yml.")
+                console.print(f"     Expected: /app/data/mealie.db (inside container)")
                 return None
+            
+            # Diagnostic permissions check
+            if not os.access(SQLITE_PATH, os.R_OK):
+                console.print(f"  ❌ File is not readable. Check permissions.")
+                # SELinux / Ownership Hint
+                console.print(f"  💡 Hint: If you use Podman/Fedora, you may need the ':z' suffix on your volume.")
             
             # Connect in Read-Only mode (URI)
             # This is critical for safety if Mealie happens to be running.

@@ -133,13 +133,23 @@ fi
 
 # --- Helper Functions for Auto-Stop/Start ---
 
-docker_available() {
-    command -v docker >/dev/null 2>&1
+CONTAINER_CLI="docker"
+
+detect_container_cli() {
+    if command -v docker >/dev/null 2>&1; then
+        CONTAINER_CLI="docker"
+        return 0
+    elif command -v podman >/dev/null 2>&1; then
+        CONTAINER_CLI="podman"
+        return 0
+    else
+        return 1
+    fi
 }
 
 stop_mealie() {
     echo "  🛑 Stopping Mealie container..."
-    if docker stop mealie >/dev/null 2>&1; then
+    if $CONTAINER_CLI stop mealie >/dev/null 2>&1; then
         echo "     ✅ Mealie stopped."
         return 0
     else
@@ -150,7 +160,7 @@ stop_mealie() {
 
 start_mealie() {
     echo "  🟢 Starting Mealie container..."
-    if docker start mealie >/dev/null 2>&1; then
+    if $CONTAINER_CLI start mealie >/dev/null 2>&1; then
         echo "     ✅ Mealie started."
         return 0
     else
@@ -482,7 +492,7 @@ check_safety() {
                 echo ""
                 
                 # Auto-Stop Offer
-                if docker_available; then
+                if detect_container_cli; then
                     printf "  🔄 Would you like to stop Mealie automatically? (y/N): "
                     read auto_stop
                     if [ "$auto_stop" = "y" ] || [ "$auto_stop" = "Y" ]; then
