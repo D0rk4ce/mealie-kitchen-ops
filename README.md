@@ -105,7 +105,6 @@ Run `--help` for a full usage guide:
 docker run --rm ghcr.io/d0rk4ce/mealie-kitchen-ops:latest --help
 ```
 
-```
 
 ### 📦 Quick Start (Podman)
 
