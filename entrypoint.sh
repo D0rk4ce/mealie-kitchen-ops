@@ -1,6 +1,7 @@
 #!/bin/sh
 
-VERSION="1.1.0"
+# Dynamically fetch the latest release tag from GitHub, fallback to 'latest'
+VERSION=$(python3 -c "import urllib.request, json; print(json.loads(urllib.request.urlopen('https://api.github.com/repos/D0rk4ce/mealie-kitchen-ops/releases').read())[0]['tag_name'])" 2>/dev/null || echo "latest")
 ENV_FILE="config/.env"
 
 # Graceful exit on Ctrl+C or termination

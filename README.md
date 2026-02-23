@@ -1,4 +1,5 @@
 # KitchenOps 🔪
+[![GitHub Release](https://img.shields.io/github/v/release/D0rk4ce/mealie-kitchen-ops?include_prereleases&sort=semver)](https://github.com/D0rk4ce/mealie-kitchen-ops/releases)
 **The Advanced Automation Suite for Mealie**
 
 KitchenOps is a production-ready set of maintenance tools for [Mealie](https://mealie.io/). It automates the organization and sanitation of large recipe libraries while prioritizing "Wife Approval Factor" (WAF).
