@@ -14,9 +14,9 @@ KitchenOps is a production-ready set of maintenance tools for [Mealie](https://m
 
 | Tool | Script | Method | Complexity | Speed | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-- **🧹 Auto-Cleaner:** Removes junk recipes, broken content, and listicles. (API)
-- **🏷️ Auto-Tagger:** Tags recipes by cuisine, protein, cheese, etc. (API)
-- **🔧 Batch Parser:** Fixes unparsed ingredients using Mealie's NLP engine. (API)
+| **🧹 Auto-Cleaner** | `kitchen_ops_cleaner.py` | API | Low | Medium | Removes junk recipes, broken content, and listicles. |
+| **🏷️ Auto-Tagger** | `kitchen_ops_tagger.py` | API | High | ⚡ Fast | Tags recipes by cuisine, protein, cheese, etc. |
+| **🔧 Batch Parser** | `kitchen_ops_parser.py` | API | Low | Slow | Fixes unparsed ingredients using Mealie's NLP engine. |
 - **⚡ DB Accelerator:** 
   - Massive speedup for finding unparsed recipes (~20m → <1s)
   - Instant library scanning for Cleaner (~7h → <1s)
