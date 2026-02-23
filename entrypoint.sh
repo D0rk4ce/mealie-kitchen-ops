@@ -127,6 +127,15 @@ else
     SCRIPT="parser"
 fi
 
+# --- Python Environment Auto-Detection ---
+if [ -f "venv/bin/python3" ]; then
+    PYTHON_CMD="venv/bin/python3"
+elif [ -f ".venv/bin/python3" ]; then
+    PYTHON_CMD=".venv/bin/python3"
+else
+    PYTHON_CMD="python3"
+fi
+
 # --- Failsafe: Wait for Mealie ---
 wait_for_mealie() {
     echo "  ⏳ Verifying Mealie API is online..."
@@ -134,7 +143,7 @@ wait_for_mealie() {
     
     count=0
     while [ $count -lt 15 ]; do
-        STATUS=$(python3 -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
+        STATUS=$($PYTHON_CMD -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
         if [ "$STATUS" = "UP" ]; then
             echo "     ✅ Mealie is online!"
             return 0
@@ -311,17 +320,17 @@ run_script() {
     case "$SCRIPT" in
       "tagger")
         echo "Starting Auto-Tagger..."
-        python3 kitchen_ops_tagger.py
+        $PYTHON_CMD kitchen_ops_tagger.py
         ;;
         
       "parser")
         echo "Starting Batch Parser..."
-        python3 kitchen_ops_parser.py
+        $PYTHON_CMD kitchen_ops_parser.py
         ;;
         
       "cleaner")
         echo "Starting Library Cleaner..."
-        python3 kitchen_ops_cleaner.py
+        $PYTHON_CMD kitchen_ops_cleaner.py
         ;;
         
       "all")
@@ -329,13 +338,13 @@ run_script() {
         echo ""
         
         # 1. Tagger (API)
-        python3 kitchen_ops_tagger.py
+        $PYTHON_CMD kitchen_ops_tagger.py
         
         # 2. Cleaner (API)
-        python3 kitchen_ops_cleaner.py
+        $PYTHON_CMD kitchen_ops_cleaner.py
         
         # 3. Parser (API)
-        python3 kitchen_ops_parser.py
+        $PYTHON_CMD kitchen_ops_parser.py
         ;;
         
       *)
