@@ -189,7 +189,12 @@ def validate_instructions(inst: object) -> bool:
     return False
 
 
+SHUTDOWN_REQUESTED = False
+
 def check_integrity(recipe: dict) -> Optional[tuple]:
+    if SHUTDOWN_REQUESTED:
+        return None
+        
     slug = recipe.get('slug')
     if slug in VERIFIED:
         return None
@@ -371,6 +376,11 @@ if __name__ == "__main__":
                 with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                     future_to_recipe = {executor.submit(check_integrity, r): r for r in clean_candidates}
                     for future in concurrent.futures.as_completed(future_to_recipe):
+                        if SHUTDOWN_REQUESTED:
+                            for f in future_to_recipe:
+                                f.cancel()
+                            break
+                            
                         try:
                             res = future.result()
                             if res:

@@ -216,6 +216,9 @@ def check_match(text: str, include_regex: str, exclude_regex: str = None) -> boo
 
 def process_single_recipe(summary: Dict, headers: Dict):
     slug = summary['slug']
+    if SHUTDOWN_REQUESTED:
+        return {"slug": slug, "tags_added": [], "cats_added": [], "tools_added": [], "error": True, "shutdown_requested": True}
+    
     result = {"slug": slug, "tags_added": [], "cats_added": [], "tools_added": [], "error": False}
     
     try:
@@ -340,6 +343,11 @@ def main():
                 futures = {executor.submit(process_single_recipe, s, headers): s for s in summaries}
                 
                 for future in as_completed(futures):
+                    if SHUTDOWN_REQUESTED:
+                        for f in futures:
+                            f.cancel()
+                        break
+                        
                     res = future.result()
                     
                     if res["tags_added"] or res["cats_added"] or res["tools_added"]:

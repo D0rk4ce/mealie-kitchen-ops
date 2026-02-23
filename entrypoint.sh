@@ -127,15 +127,6 @@ else
     SCRIPT="parser"
 fi
 
-# --- Python Environment Auto-Detection ---
-if [ -f "venv/bin/python3" ]; then
-    PYTHON_CMD="venv/bin/python3"
-elif [ -f ".venv/bin/python3" ]; then
-    PYTHON_CMD=".venv/bin/python3"
-else
-    PYTHON_CMD="python3"
-fi
-
 # --- Failsafe: Wait for Mealie ---
 wait_for_mealie() {
     echo "  ⏳ Verifying Mealie API is online..."
@@ -143,7 +134,7 @@ wait_for_mealie() {
     
     count=0
     while [ $count -lt 15 ]; do
-        STATUS=$($PYTHON_CMD -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
+        STATUS=$(python3 -c "import urllib.request, sys; print('UP') if urllib.request.urlopen(sys.argv[1], timeout=2).getcode() else print('DOWN')" "$MEALIE_URL" 2>/dev/null || echo "DOWN")
         if [ "$STATUS" = "UP" ]; then
             echo "     ✅ Mealie is online!"
             return 0
@@ -317,20 +308,26 @@ echo "========================================"
 # RUN SCRIPT
 # ======================================
 run_script() {
+    # If running locally (not in Docker) and a venv exists, use it
+    if [ -f "venv/bin/activate" ]; then
+        echo "  [dim]Activating local Python virtual environment...[/dim]"
+        . venv/bin/activate
+    fi
+
     case "$SCRIPT" in
       "tagger")
         echo "Starting Auto-Tagger..."
-        $PYTHON_CMD kitchen_ops_tagger.py
+        python3 kitchen_ops_tagger.py
         ;;
         
       "parser")
         echo "Starting Batch Parser..."
-        $PYTHON_CMD kitchen_ops_parser.py
+        python3 kitchen_ops_parser.py
         ;;
         
       "cleaner")
         echo "Starting Library Cleaner..."
-        $PYTHON_CMD kitchen_ops_cleaner.py
+        python3 kitchen_ops_cleaner.py
         ;;
         
       "all")
@@ -338,13 +335,13 @@ run_script() {
         echo ""
         
         # 1. Tagger (API)
-        $PYTHON_CMD kitchen_ops_tagger.py
+        python3 kitchen_ops_tagger.py
         
         # 2. Cleaner (API)
-        $PYTHON_CMD kitchen_ops_cleaner.py
+        python3 kitchen_ops_cleaner.py
         
         # 3. Parser (API)
-        $PYTHON_CMD kitchen_ops_parser.py
+        python3 kitchen_ops_parser.py
         ;;
         
       *)

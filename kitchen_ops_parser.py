@@ -56,10 +56,13 @@ HISTORY_LOCK = threading.Lock()
 thread_local = threading.local()
 
 
+SHUTDOWN_REQUESTED = False
+
 def signal_handler(sig: int, frame: Any) -> None:
-    console.print("\n[warning]Interrupt received. Saving history...[/warning]")
+    global SHUTDOWN_REQUESTED
+    SHUTDOWN_REQUESTED = True
+    console.print("\n[warning]Interrupt received. Stopping threads cleanly...[/warning]")
     save_history()
-    sys.exit(0)
 
 signal.signal(signal.SIGINT, signal_handler)
 
@@ -263,6 +266,9 @@ def get_id_for_food(name: str) -> Optional[str]:
 
 
 def process_recipe(slug: str) -> bool:
+    if SHUTDOWN_REQUESTED:
+        return False
+        
     session = get_session()
     try:
         r = session.get(f"{MEALIE_URL}/api/recipes/{slug}", timeout=15)
@@ -449,6 +455,11 @@ if __name__ == "__main__":
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             future_to_slug = {executor.submit(process_recipe, r["slug"]): r["slug"] for r in todo}
             for future in concurrent.futures.as_completed(future_to_slug):
+                if SHUTDOWN_REQUESTED:
+                    for f in future_to_slug:
+                        f.cancel()
+                    break
+                    
                 slug = future_to_slug[future]
                 try:
                     if future.result():
