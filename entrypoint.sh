@@ -9,7 +9,7 @@ trap 'echo ""; echo "  ⛔ Interrupted. Exiting gracefully."; exit 130' INT TERM
 
 # --- Help / Version Flags ---
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "KitchenOps v${VERSION} — Automation Suite for Mealie"
+    echo "KitchenOps ${VERSION} — Automation Suite for Mealie"
     echo ""
     echo "Usage: Set the SCRIPT_TO_RUN environment variable to choose a tool,"
     echo "       or run interactively to get a selection menu."
@@ -33,7 +33,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
-    echo "KitchenOps v${VERSION}"
+    echo "KitchenOps ${VERSION}"
     exit 0
 fi
 
@@ -68,7 +68,7 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 echo "========================================"
-echo "  KITCHENOPS LAUNCHER v${VERSION}"
+echo "  KITCHENOPS LAUNCHER ${VERSION}"
 echo "========================================"
 if [ -n "$ENV_LOADED" ]; then
     echo "  Loaded: $ENV_LOADED"
