@@ -1,15 +1,28 @@
-"""KitchenOps Auto-Tagger — tags Mealie recipes by cuisine, protein, cheese, and tools."""
+"""
+KitchenOps Auto-Tagger v12.7 (Public Release Hybrid)
+Tags Mealie recipes by cuisine, protein, cheese, tools, and categories.
+Uses the Mealie API for safety, with parallel processing and a Rich UI.
+"""
 
-import logging, os, re, sys, time, uuid
-from datetime import datetime
-from typing import Any, Optional
+import os
+import re
+import requests
+import logging
+import sys
+import time
 import yaml
+from datetime import datetime
+from typing import Dict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from rich.console import Console
 from rich.table import Table
-from rich.progress import track
-
-# Rich Console Setup
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
 from rich.theme import Theme
+
+# ==========================================
+# 1. UI & LOGGING SETUP
+# ==========================================
 custom_theme = Theme({
     "info": "cyan",
     "warning": "yellow",
@@ -22,298 +35,351 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(level=LOG_LEVEL, format='%(message)s', handlers=[logging.NullHandler()])
 logger = logging.getLogger("tagger")
 
-# File logging
 os.makedirs("logs", exist_ok=True)
 _fh = logging.FileHandler(f"logs/tagger_{datetime.now().strftime('%Y-%m-%d')}.log")
 _fh.setFormatter(logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S'))
 logger.addHandler(_fh)
 logger.setLevel(logging.INFO)
 
-DRY_RUN: bool = os.getenv('DRY_RUN', 'true').lower() == 'true'
-DB_TYPE: str = os.getenv('DB_TYPE', 'sqlite').lower().strip()
-SQLITE_PATH: str = os.getenv('SQLITE_PATH', '/app/data/mealie.db')
-PG_DB: str = os.getenv('POSTGRES_DB', 'mealie')
-PG_USER: str = os.getenv('POSTGRES_USER', 'mealie')
-PG_PASS: str = os.getenv('POSTGRES_PASSWORD', 'mealie')
-PG_HOST: str = os.getenv('POSTGRES_HOST', 'postgres')
-PG_PORT: str = os.getenv('POSTGRES_PORT', '5432')
+# ==========================================
+# 2. DEFAULT DICTIONARIES (Failsafe)
+# ==========================================
+DEFAULT_CHEESE = {
+    "Sharp & Aged": "cheddar|parmesan|pecorino|manchego|asiago|gruyere|comte|aged gouda",
+    "Soft & Creamy": "mozzarella|burrata|ricotta|brie|camembert|goat cheese|chèvre|cream cheese|mascarpone|neufchatel",
+    "Blue & Funky": "gorgonzola|roquefort|stilton|blue cheese|taleggio|danablu",
+    "Fresh & Curd": "paneer|chenna|khoya|feta|halloumi|cotija|queso fresco|cheese curds",
+    "Melting Cheese": "provolone|fontina|monterey jack|muenster|gouda|swiss|raclette|havarti|edam|jarlsberg",
+}
 
-# Load Config
+DEFAULT_PROTEIN = {
+    "Chicken": {"regex": "chicken|chicken wing|drumstick|chicken thigh|chicken breast|poultry|cornish hen", "exclude": "broth|stock|bouillon|chickpea"},
+    "Beef": {"regex": "beef|steak|hamburger|ground beef|ribeye|sirloin|brisket|chuck roast|filet mignon|short rib|flank steak|ground meat", "exclude": "broth|stock|bouillon|beef leaf"},
+    "Pork": {"regex": "pork|bacon|ham hock|ham steak|sausage|pork tenderloin|chorizo|prosciutto|pancetta|guanciale|salami|pork belly|pork chop|pork loin|spare rib|pork shoulder", "exclude": "turkey|chicken|hamburger"},
+    "Seafood": {"regex": "shrimp|salmon|tuna|cod fish|cod fillet|lobster|scallop|mussel|clam|fish|prawn|crab|squid|octopus|anchovy|sardine|tilapia|mahi mahi|halibut|swordfish|trout", "exclude": "sauce|stock|fish sauce"},
+    "Lamb/Goat": {"regex": "lamb|mutton|goat cheese|gyro|merguez", "exclude": "goat cheese|lettuce"},
+    "Game Meat": {"regex": "venison|duck|bison|rabbit|quail|goose|elk|pheasant", "exclude": "sauce|duck sauce"},
+    "Egg": {"regex": r"egg|eggs|huevos", "exclude": "plant|noodle"},
+    "Vegetarian Protein": {"regex": "tofu|tempeh|seitan|lentil|chickpea|black bean|kidney bean|cannellini|edamame|soy curl", "exclude": "pork|beef|chicken"},
+}
+
+DEFAULT_CUISINE = {
+    "Chinese (Cantonese)": "oyster sauce|hoisin|shaoxing|char siu|lap cheong|wonton|five spice",
+    "Chinese (Sichuan)": "sichuan pepper|doubanjiang|chili oil|mala|dried chili|black vinegar|facing heaven pepper",
+    "Japanese": "miso|mirin|dashi|sake|nori|wasabi|furikake|panko|bonito|kombu|shoyu|katsu",
+    "Korean": "gochujang|gochugaru|kimchi|doenjang|rice cake|perilla leaf|bulgogi|japchae",
+    "Thai": "fish sauce|curry paste|thai basil|kaffir lime|bird's eye chili|nam pla|pad thai",
+    "Vietnamese": "fish sauce|star anise|pho|rice paper|vermicelli|nuoc cham|banh mi",
+    "Indonesian / Malaysian": "kecap manis|galangal|sambal|shrimp paste|kaffir lime|turmeric leaf|rendang|nasi",
+    "Filipino": "calamansi|cane vinegar|banana ketchup|ube|bagoong|lumpia|adobo",
+    "Indian": "garam masala|paneer|ghee|fenugreek|makhani|tandoori|kashmiri chili|amchur|curry leaf|mustard seed|asafoetida|hing|sambar|rasam|urad dal|appam|puttu",
+    "Pakistani": "nihari|karahi|shan masala|chapli|haleem|biryani masala",
+    "Mexican": "corn tortilla|masa|tomatillo|poblano|cotija|epazote|pepita|mole|queso fresco|guajillo|ancho chili",
+    "Tex-Mex": "flour tortilla|fajita seasoning|fajita|nacho|queso|taco seasoning|refried beans",
+    "Peruvian": "aji amarillo|aji panca|quinoa|ceviche|pisco|huacatay|rocoto",
+    "Brazilian": "dende oil|cassava flour|farofa|cachaca|guarana|tucupi|pao de queijo",
+    "US Southern": "buttermilk|collard greens|cornmeal|grits|okra|bacon grease|cajun|creole|andouille|remoulade",
+    "Caribbean": "scotch bonnet|jerk seasoning|jerk|plantain|callaloo|allspice|ackee|sorrel",
+    "Italian": "pecorino|parmesan|risotto|polenta|balsamic|prosciutto|gorgonzola|truffle|pancetta|nduja|focaccia|pesto",
+    "French": "herbes de provence|dijon|tarragon|cognac|gruyere|creme fraiche|bouquet garni|fleur de sel",
+    "Spanish": "saffron|chorizo|manchego|sherry|paella|iberico|pimenton|romesco",
+    "Greek": "feta|kalamata|phyllo|halloumi|tzatziki|oregano|greek yogurt",
+    "German": "sauerkraut|bratwurst|caraway|schnitzel|spaetzle|pretzel|juniper berry",
+    "British / Irish": "malt vinegar|english mustard|worcestershire|stilton|golden syrup|stout|guinness|clotted cream|marmite",
+    "Eastern European": "pierogi|kielbasa|sauerkraut|poppy seed|borscht|kvass",
+    "Levantine (Middle Eastern)": "tahini|za'atar|sumac|bulgur|pomegranate molasses|halva|labneh|freekeh",
+    "Persian (Iranian)": "rose water|barberry|dried lime|pomegranate molasses|tahdig|saffron|zereshk",
+    "North African (Maghreb)": "preserved lemon|ras el hanout|tagine|harissa|merguez|chermoula",
+    "East African (Ethiopian)": "berbere|niter kibbeh|injera|teff|mitmita|awaze",
+    "West African": "scotch bonnet|egusi|fufu|jollof|red palm oil|suya|dawadawa",
+}
+
+DEFAULT_TEXT = {
+    "Extra Spicy": ["extra spicy", "insane heat", "ghost pepper", "habanero", "thai chili", "bird's eye", "scotch bonnet", "carolina reaper", "vindaloo", "phaal"],
+    "Spicy": ["spicy", "jalapeno", "hot sauce", "sriracha", "chili flakes", "serrano", "cayenne", "gochujang", "harissa", "sambal", "peri peri"],
+    "Comfort Food": ["mac and cheese", "casserole", "meatloaf", "gravy", "pot pie", "stew", "grilled cheese"],
+    "One Pot": ["one pot", "sheet pan", "skillet dinner", "dutch oven"],
+    "Project Meal": ["sourdough", "ferment", "cure", "smoke", "braise", "confit", "mole"],
+    "Vegan": ["vegan", "plant based", "plant-based"],
+    "Keto": ["keto", "ketogenic", "low carb", "low-carb"],
+    "Gluten Free": ["gluten free", "gluten-free", "gf"],
+    "Paleo": ["paleo", "whole30"]
+}
+
+DEFAULT_TOOLS = {
+    "Air Fryer": ["air fryer", "air-fryer", "airfryer"],
+    "Instant Pot": ["instant pot", "pressure cooker", "multicooker"],
+    "Slow Cooker": ["slow cooker", "crock pot"],
+    "Dutch Oven": ["dutch oven", "le creuset"],
+    "Wok": ["wok"],
+    "Cast Iron": ["cast iron", "skillet"],
+    "Smoker / Grill": ["smoker", "traeger", "charcoal", "grill", "big green egg"],
+    "Sous Vide": ["sous vide", "immersion circulator"],
+}
+
+DEFAULT_CATEGORIES = [
+    ("Beverage", ["smoothie", "shake", "latte", "lemonade", "lassi", "punch", "tea", "coffee", "cider", "cocoa", "soda", "limeade", "agua fresca", "julius", "frappe", "chai", "milkshake", "mocha", "cold brew", "cappuccino", "espresso", "macchiato", "cocktail", "mocktail", "margarita", "martini", "mojito", "sangria", "piña colada", "mimosa", "shot", "julep", "bellini", "irish cream", "drunken", "slushie", "spritzer", "fizz", "sour", "collins", "toddy", "old fashioned", "negroni", "daiquiri", "buttermilk", "sambaram"]),
+    ("Condiment", ["sauce", "rub", "marinade", "pesto", "dressing", "dip", "hummus", "salsa", "jam", "jelly", "pickle", "syrup", "chutney", "relish", "vinaigrette", "glaze", "reduction", "compote", "curd", "butter", "oil", "spice mix", "seasoning", "paste", "spread", "mayonnaise", "ketchup", "mustard", "bbq sauce", "aioli", "remoulade", "sriracha", "gochujang", "harissa"]),
+    ("Dessert", ["dessert", "cake", "cookie", "brownie", "fudge", "ice cream", "pudding", "pie", "tart", "sorbet", "gelato", "candy", "chocolate", "truffle", "donut", "doughnut", "shortcake", "cheesecake", "pastry", "postre", "dulce", "galleta", "helado", "paleta", "cinnabunny", "cinnamon roll", "toffee", "pop", "popsicle", "burfi", "jalebi", "sandesh", "sondesh", "panjeeri", "panjiri", "sheera", "caramel", "gummies", "apple dumpling", "crisp", "bunuelos", "tamales dulces", "gelatina", "pay de calabaza", "creamsicle", "mousse", "parfait", "scone", "biscotti", "cobbler", "buckeye", "blondie", "cupcake", "macaron", "meringue", "pavlova", "trifle", "turnover", "strudel", "ambrosia", "kheer", "halwa", "ladoo", "gulab jamun"]),
+    ("Breakfast", ["pancake", "waffle", "oats", "oatmeal", "breakfast", "omelet", "scramble", "french toast", "granola", "cereal", "crepe", "hot cake", "muesli", "bagel", "benedict", "hash", "frittata", "quiche", "huevos rancheros", "shakshuka", "idli", "dosa", "vada", "uttapam", "appam", "puttu", "idi appam", "upma"]),
+    ("Snack", ["snack", "bite", "energy bite", "energy ball", "pecan", "nut", "mix", "chestnut", "cottage cheese", "bistro box", "popcorn", "chips", "cracker", "dip", "chex mix", "trail mix", "granola bar", "jerky", "deviled egg", "nacho", "finger food", "appetizer", "murukku", "samosa", "pakora"]),
+    ("Bread", ["bread", "loaf", "roll", "bun", "baguette", "ciabatta", "focaccia", "sourdough", "flatbread", "pita", "toast", "muffin", "pretzel", "breadstick", "mollete", "naan", "tortilla", "biscuit", "roti", "chapati", "paratha", "kulcha", "pav"]),
+    ("Soup", ["soup", "stew", "chowder", "chili", "bisque", "pozole", "ramen", "pho", "stock", "broth", "gazpacho", "consumme", "minestrone", "gumbo", "bouillabaisse", "vysusuoise"]),
+    ("Salad", ["salad", "slaw", "coleslaw", "caesar", "caprese", "waldorf", "wedge", "cobb", "niçoise", "tabbouleh"]),
+    ("Side Dish", ["side dish", "side", "fries", "wedges", "tots", "rice", "vegetable", "veggie", "corn", "bean", "succotash", "asparagus", "broccoli", "carrot", "cauliflower", "zucchini", "mushroom", "onion", "parsnip", "plantain", "grits", "stuffing", "borlotti", "eggplant", "potato", "yam", "gnocchi", "au gratin", "mash", "puree", "pilaf", "couscous", "quinoa", "thoran", "poriyal", "dal", "sambal"]),
+    ("Main Course", ["chicken", "beef", "pork", "steak", "burger", "roast", "stew", "curry", "pizza", "pasta", "lasagna", "spaghetti", "fettuccine", "risotto", "casserole", "enchilada", "burrito", "taco", "fajita", "quesadilla", "meatball", "meatloaf", "ribs", "brisket", "pulled pork", "carnitas", "chop", "tenderloin", "salmon", "tuna", "cod", "halibut", "shrimp", "lobster", "crab", "fish", "tofu", "tempeh", "seitan", "stir fry", "pad thai", "lo mein", "soup", "chili", "chowder", "bisque", "pozole", "ramen", "pho", "udon", "sandwich", "wrap", "gyro", "shawarma", "kebab", "falafel", "biryani", "paella", "jambalaya", "gumbo", "etouffee", "shepherd's pie", "pot pie", "london broil", "empanada", "tamale", "sushi", "sashimi", "poke bowl", "bibimbap", "bulgogi", "macaroni", "ziti", "alfredo", "carbonara", "bolognese", "stroganoff", "vindaloo", "korma", "tikka"])
+]
+
+# ==========================================
+# 3. CONFIGURATION LOADING
+# ==========================================
+def load_environment():
+    env_path = os.path.join(os.getcwd(), 'config.env')
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('export '):
+                    line = line.replace('export ', '', 1).split('#')[0].strip()
+                    if '=' in line:
+                        k, v = line.split('=', 1)
+                        os.environ[k] = v.strip().strip('"').strip("'")
+
+load_environment()
+
+MEALIE_URL = os.getenv("MEALIE_URL", "http://localhost:9000").rstrip('/')
+API_TOKEN = os.getenv("API_TOKEN")
+DRY_RUN = os.getenv("DRY_RUN", "True").lower() == "true"
+MIN_CUISINE_MATCHES = 3
+
+try:
+    MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4")) 
+except (ValueError, TypeError):
+    MAX_WORKERS = 4
+
 try:
     with open("config/tagging.yaml", "r") as f:
-        config = yaml.safe_load(f)
-        CHEESE_TYPES = config.get("cheese_types", {})
-        SQL_INGREDIENT_TAGS = config.get("protein_tags", {})
-        SQL_CUISINE_FINGERPRINTS = config.get("cuisine_fingerprints", {})
-        TEXT_ONLY_TAGS = config.get("text_tags", {})
-        TOOLS_MATCHES = config.get("tools_matches", {})
+        CONFIG = yaml.safe_load(f) or {}
+        console.print("[info]Loaded custom rules from config/tagging.yaml[/info]")
+except FileNotFoundError:
+    # Intentionally silent on FileNotFoundError so as not to clutter standard usage
+    CONFIG = {}
 except Exception as e:
-    console.print(f"[error]Failed to load config/tagging.yaml: {e}[/error]")
-    sys.exit(1)
+    console.print(f"[warning]Error reading config/tagging.yaml ({e}). Falling back to built-in default tags...[/warning]")
+    CONFIG = {}
 
-MIN_CUISINE_MATCHES: int = 2
+CHEESE_TYPES = CONFIG.get("cheese_types", DEFAULT_CHEESE)
+PROTEIN_TAGS = CONFIG.get("protein_tags", DEFAULT_PROTEIN)
+CUISINE_FINGERPRINTS = CONFIG.get("cuisine_fingerprints", DEFAULT_CUISINE)
+TEXT_ONLY_TAGS = CONFIG.get("text_tags", DEFAULT_TEXT)
+TOOLS_MATCHES = CONFIG.get("tools_matches", DEFAULT_TOOLS)
+CATEGORY_WATERFALL = CONFIG.get("categories", DEFAULT_CATEGORIES)
 
+# ==========================================
+# 4. CORE LOGIC & UTILITIES
+# ==========================================
+def fetch_all_summaries(headers):
+    all_items = []
+    page, per_page = 1, 500
+    try:
+        with console.status("[bold green]Fetching recipe list from Mealie...") as status:
+            while True:
+                try:
+                    url = f"{MEALIE_URL}/api/recipes?page={page}&perPage={per_page}"
+                    r = requests.get(url, headers=headers, timeout=30)
+                    r.raise_for_status()
+                    items = r.json().get('items', [])
+                    if not items: break
+                    all_items.extend(items)
+                    status.update(f"[bold green]Fetched {len(all_items)} summaries...")
+                    if len(items) < per_page: break
+                    page += 1
+                except Exception as e:
+                    console.print(f"[error]Fetch error on page {page}: {e}[/error]")
+                    sys.exit(1)
+    except KeyboardInterrupt:
+        console.print("\n[warning]🛑 Interrupted by user during fetch. Exiting cleanly...[/warning]")
+        sys.exit(1)
+        
+    return all_items
 
-class DBWrapper:
-    def __init__(self) -> None:
-        self.conn: Any = None
-        self.cursor: Any = None
-        self.type: str = DB_TYPE
-        self._placeholder: str = "%s" if self.type == "postgres" else "?"
-
-        try:
-            if self.type == "postgres":
-                import psycopg2
-                self.conn = psycopg2.connect(dbname=PG_DB, user=PG_USER, password=PG_PASS, host=PG_HOST, port=PG_PORT)
-                self.conn.autocommit = True
-            else:
-                import sqlite3
-                self.conn = sqlite3.connect(SQLITE_PATH)
-                self.conn.create_function("REGEXP", 2, self._regexp)
-            self.cursor = self.conn.cursor()
-        except Exception as e:
-            console.print(f"[error]Database connection failed: {e}[/error]")
-            
-            # Diagnostic for SQLite
-            if self.type == "sqlite":
-                console.print(f"[warning]Diagnostics for {SQLITE_PATH}:[/warning]")
-                if not os.path.exists(SQLITE_PATH):
-                    console.print(f"  ❌ File not found. Check your volume mount in docker-compose.yml.")
-                    console.print(f"     Expected: /app/data/mealie.db (inside container)")
-                else:
-                    console.print(f"  ✅ File exists.")
-                    if not os.access(SQLITE_PATH, os.R_OK):
-                        console.print(f"  ❌ File is not readable. Check permissions.")
-                    if not os.access(SQLITE_PATH, os.W_OK):
-                        console.print(f"  ❌ File is not writable. Check permissions.")
-                    
-                    # SELinux / Ownership Hint
-                    console.print(f"  💡 Hint: If you use Podman/Fedora, you may need the ':z' suffix on your volume.")
-                    console.print(f"     Example: - ./data:/app/data:z")
-
-            self.conn = None
-
-    @property
-    def placeholder(self) -> str:
-        return self._placeholder
-
-    @staticmethod
-    def _regexp(expr: Optional[str], item: Optional[str]) -> bool:
-        if item is None or expr is None:
+def check_match(text: str, include_regex: str, exclude_regex: str = None) -> bool:
+    include_regex = include_regex.replace(r'\y', r'\b')
+    if not re.search(fr"\b({include_regex})\b", text, re.I):
+        return False
+    if exclude_regex:
+        exclude_regex = exclude_regex.replace(r'\y', r'\b')
+        if re.search(fr"\b({exclude_regex})\b", text, re.I):
             return False
-        try:
-            return re.compile(expr.replace(r'\y', r'\b'), re.IGNORECASE).search(item) is not None
-        except re.error:
-            return False
+    return True
 
-    def execute(self, sql: str, params: Optional[tuple] = None) -> "DBWrapper":
-        try:
-            if self.type == "sqlite":
-                sql = re.sub(r"(\w+)\s*~\*\s*('[^']+')", r"\1 REGEXP \2", sql)
-                sql = re.sub(r"(\w+)\s*!~\*\s*('[^']+')", r"NOT (\1 REGEXP \2)", sql)
-                sql = sql.replace("gen_random_uuid()", "lower(hex(randomblob(16)))")
-                sql = sql.replace("::uuid", "")
-            self.cursor.execute(sql, params or ())
-        except Exception as e:
-            console.print(f"[error]SQL failed: {e}[/error]")
-        return self
-
-    def fetch_one(self) -> Optional[tuple]:
-        return self.cursor.fetchone() if self.cursor else None
-
-    def fetch_all(self) -> list[tuple]:
-        return self.cursor.fetchall() if self.cursor else []
-
-    def close(self) -> None:
-        if self.conn:
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-
-
-def get_group_id(db: DBWrapper) -> Optional[str]:
-    row = db.execute("SELECT id FROM groups LIMIT 1").fetch_one()
-    return row[0] if row else None
-
-
-def _make_slug(name: str) -> str:
-    return name.lower().replace(" ", "-").replace("/", "-").replace("&", "and")
-
-
-def ensure_tag(db: DBWrapper, name: str, group_id: str) -> Optional[str]:
-    slug, p = _make_slug(name), db.placeholder
-    row = db.execute(f"SELECT id FROM tags WHERE slug = {p}", (slug,)).fetch_one()
-    if row:
-        return row[0]
-    if not DRY_RUN:
-        new_id = str(uuid.uuid4())
-        db.execute(f"INSERT INTO tags (id, group_id, name, slug) VALUES ({p}, {p}, {p}, {p})", (new_id, group_id, name, slug))
-        return new_id
-    return "dry-run-id"
-
-
-def ensure_tool(db: DBWrapper, name: str, group_id: str) -> Optional[str]:
-    slug, p = name.lower().replace(" ", "-"), db.placeholder
-    row = db.execute(f"SELECT id FROM tools WHERE slug = {p}", (slug,)).fetch_one()
-    if row:
-        return row[0]
-    if not DRY_RUN:
-        new_id = str(uuid.uuid4())
-        db.execute(f"INSERT INTO tools (id, group_id, name, slug, on_hand) VALUES ({p}, {p}, {p}, {p}, 0)", (new_id, group_id, name, slug))
-        return new_id
-    return "dry-run-id"
-
-
-def link_tag(db: DBWrapper, recipe_id: str, tag_id: str) -> None:
-    if DRY_RUN:
-        return
-    p = db.placeholder
-    if not db.execute(f"SELECT 1 FROM recipes_to_tags WHERE recipe_id = {p} AND tag_id = {p}", (recipe_id, tag_id)).fetch_one():
-        db.execute(f"INSERT INTO recipes_to_tags (recipe_id, tag_id) VALUES ({p}, {p})", (recipe_id, tag_id))
-
-
-def link_tool(db: DBWrapper, recipe_id: str, tool_id: str) -> None:
-    if DRY_RUN:
-        return
-    p = db.placeholder
-    if not db.execute(f"SELECT 1 FROM recipes_to_tools WHERE recipe_id = {p} AND tool_id = {p}", (recipe_id, tool_id)).fetch_one():
-        db.execute(f"INSERT INTO recipes_to_tools (recipe_id, tool_id) VALUES ({p}, {p})", (recipe_id, tool_id))
-
-
-def _wrap_word_boundaries(pattern: str) -> str:
-    terms = [t.strip() for t in pattern.split("|") if t.strip()]
-    return "|".join(r"\y" + t + r"\y" for t in terms)
-
-
-def phase_1_cheese(db: DBWrapper, group_id: str) -> None:
-    console.print("[bold]Phase 1: Cheese Tags[/bold]")
-    for cat, regex in track(CHEESE_TYPES.items(), description="Scanning cheese types..."):
-        tag_id = ensure_tag(db, cat, group_id)
-        safe = _wrap_word_boundaries(regex)
-        for (rid,) in db.execute(f"SELECT DISTINCT recipe_id FROM recipes_ingredients WHERE food_id IN (SELECT id FROM ingredient_foods WHERE name ~* '{safe}')").fetch_all():
-            link_tag(db, rid, tag_id)
-
-
-def phase_2_protein(db: DBWrapper, group_id: str) -> None:
-    console.print("[bold]Phase 2: Protein Tags[/bold]")
-    for cat, rules in track(SQL_INGREDIENT_TAGS.items(), description="Scanning proteins..."):
-        tag_id = ensure_tag(db, cat, group_id)
-        inc, exc = _wrap_word_boundaries(rules["regex"]), _wrap_word_boundaries(rules.get("exclude", ""))
-        sql = f"SELECT DISTINCT recipe_id FROM recipes_ingredients WHERE food_id IN (SELECT id FROM ingredient_foods WHERE name ~* '{inc}' AND name !~* '{exc}')"
-        for (rid,) in db.execute(sql).fetch_all():
-            link_tag(db, rid, tag_id)
-
-
-def phase_3_cuisine(db: DBWrapper, group_id: str) -> None:
-    console.print(f"[bold]Phase 3: Cuisine Tags (Threshold: {MIN_CUISINE_MATCHES})[/bold]")
-    for cuisine, regex in track(SQL_CUISINE_FINGERPRINTS.items(), description="Scanning cuisines..."):
-        tag_id = ensure_tag(db, cuisine, group_id)
-        safe = _wrap_word_boundaries(regex)
-        sql = f"SELECT recipe_id FROM recipes_ingredients WHERE food_id IN (SELECT id FROM ingredient_foods WHERE name ~* '{safe}') GROUP BY recipe_id HAVING COUNT(DISTINCT food_id) >= {MIN_CUISINE_MATCHES}"
-        for (rid,) in db.execute(sql).fetch_all():
-            link_tag(db, rid, tag_id)
-
-
-def phase_4_text(db: DBWrapper, group_id: str) -> None:
-    console.print("[bold]Phase 4: Text-Based Tags[/bold]")
-    for tag, keywords in track(TEXT_ONLY_TAGS.items(), description="Scanning text..."):
-        tag_id = ensure_tag(db, tag, group_id)
-        chain = "|".join(r"\y" + k.replace("'", "''") + r"\y" for k in keywords)
-        for (rid,) in db.execute(f"SELECT id FROM recipes WHERE name ~* '{chain}' OR description ~* '{chain}'").fetch_all():
-            link_tag(db, rid, tag_id)
-
-
-def phase_5_tools(db: DBWrapper, group_id: str) -> None:
-    console.print("[bold]Phase 5: Tool Tagging[/bold]")
-    for tool, keywords in track(TOOLS_MATCHES.items(), description="Scanning tools..."):
-        tool_id = ensure_tool(db, tool, group_id)
-        chain = "|".join(r"\y" + k + r"\y" for k in keywords)
-        sql = f"SELECT DISTINCT r.id FROM recipes r JOIN recipe_instructions ri ON r.id = ri.recipe_id WHERE ri.text ~* '{chain}'"
-        for (rid,) in db.execute(sql).fetch_all():
-            link_tool(db, rid, tool_id)
-
-
-def phase_6_report(db: DBWrapper) -> None:
-    table = Table(title="Cuisine Market Share")
-    table.add_column("Cuisine", style="cyan")
-    table.add_column("Count", style="green", justify="right")
-
-    # Single query instead of N+1
-    cuisine_slugs = {_make_slug(c): c for c in SQL_CUISINE_FINGERPRINTS}
-    placeholders = ", ".join([db.placeholder] * len(cuisine_slugs))
-    rows = db.execute(
-        f"SELECT t.slug, COUNT(*) FROM recipes_to_tags rt "
-        f"JOIN tags t ON rt.tag_id = t.id "
-        f"WHERE t.slug IN ({placeholders}) "
-        f"GROUP BY t.slug ORDER BY t.slug",
-        tuple(cuisine_slugs.keys())
-    ).fetch_all()
-
-    for slug, count in (rows or []):
-        name = cuisine_slugs.get(slug, slug)
-        if count > 0:
-            table.add_row(name, str(count))
-
-    console.print(table)
+def process_single_recipe(summary: Dict, headers: Dict):
+    slug = summary['slug']
+    result = {"slug": slug, "tags_added": [], "cats_added": [], "tools_added": [], "error": False}
     
-    row = db.execute(
-        "SELECT COUNT(*) FROM recipes r "
-        "LEFT JOIN recipes_to_tags rt ON r.id = rt.recipe_id "
-        "WHERE rt.recipe_id IS NULL"
-    ).fetch_one()
-    untagged = row[0] if row else "?"
-    console.print(f"\n[bold red]Untagged Recipes Left:[/bold red] {untagged}")
+    try:
+        resp = requests.get(f"{MEALIE_URL}/api/recipes/{slug}", headers=headers, timeout=15)
+        recipe = resp.json()
+        
+        # Text Blobs
+        ing_text = " ".join([(i.get('food') or {}).get('name', '') + " " + i.get('note', '') for i in recipe.get('recipeIngredients', [])])
+        inst_text = " ".join([step.get('text', '') for step in recipe.get('recipeInstructions', [])])
+        cat_text = f"{recipe.get('name', '')} {slug}"
+        
+        current_tags = {t['name'] for t in recipe.get('tags', [])}
+        original_tags = set(current_tags)
+        
+        current_cats = {c['name'] for c in recipe.get('categories', [])}
+        original_cats = set(current_cats)
+        
+        current_tools = {t['name'] for t in recipe.get('tools', [])}
+        original_tools = set(current_tools)
 
+        # 1. Proteins
+        for tag, rules in PROTEIN_TAGS.items():
+            if check_match(ing_text, rules.get('regex', ''), rules.get('exclude')):
+                current_tags.add(tag)
+
+        # 2. Cheese
+        for tag, regex in CHEESE_TYPES.items():
+            if check_match(ing_text, regex):
+                current_tags.add(tag)
+
+        # 3. Cuisine
+        for cuisine, regex in CUISINE_FINGERPRINTS.items():
+            matches = len(re.findall(fr"\b({regex})\b", ing_text, re.I))
+            if matches >= MIN_CUISINE_MATCHES:
+                current_tags.add(cuisine)
+                
+        # 4. Text Tags
+        for tag, keywords in TEXT_ONLY_TAGS.items():
+            chain = "|".join(keywords).replace("'", "''")
+            if check_match(cat_text, chain): 
+                current_tags.add(tag)
+
+        # 5. Tools
+        for tool, keywords in TOOLS_MATCHES.items():
+            chain = "|".join(keywords)
+            if check_match(inst_text, chain):
+                current_tools.add(tool)
+
+        # 6. Categories (Waterfall)
+        if not current_cats:
+            for cat in CATEGORY_WATERFALL:
+                cat_name = cat[0] if isinstance(cat, (list, tuple)) else list(cat.keys())[0]
+                keywords = cat[1] if isinstance(cat, (list, tuple)) else list(cat.values())[0]
+                
+                pattern = "|".join(keywords).replace("'", "''")
+                if check_match(cat_text, pattern):
+                    current_cats.add(cat_name)
+                    break 
+
+        updates = {}
+        if current_tags != original_tags:
+            updates["tags"] = [{"name": t} for t in current_tags]
+            result["tags_added"] = list(current_tags - original_tags)
+            
+        if current_cats != original_cats:
+            updates["categories"] = [{"name": c} for c in current_cats]
+            result["cats_added"] = list(current_cats - original_cats)
+            
+        if current_tools != original_tools:
+            updates["tools"] = [{"name": t} for t in current_tools]
+            result["tools_added"] = list(current_tools - original_tools)
+
+        if updates and not DRY_RUN:
+            requests.patch(f"{MEALIE_URL}/api/recipes/{slug}", json=updates, headers=headers, timeout=15)
+            
+        return result
+    except Exception as e:
+        logger.error(f"Error processing {slug}: {e}")
+        result["error"] = True
+        return result
 
 def format_elapsed(seconds: float) -> str:
     s = int(seconds)
-    if s >= 86400:
-        return f"{s // 86400}d {(s % 86400) // 3600}h {(s % 3600) // 60}m"
-    if s >= 3600:
-        return f"{s // 3600}h {(s % 3600) // 60}m"
-    if s >= 60:
-        return f"{s // 60}m {s % 60}s"
+    if s >= 3600: return f"{s // 3600}h {(s % 3600) // 60}m"
+    if s >= 60: return f"{s // 60}m {s % 60}s"
     return f"{s}s"
 
-
-def main() -> None:
-    console.rule("[bold cyan]KitchenOps Auto-Tagger[/bold cyan]")
-    console.print(f"DB: {DB_TYPE.upper()} | Dry Run: {DRY_RUN}")
-    logger.info(f"Started | DB: {DB_TYPE.upper()} | Dry Run: {DRY_RUN}")
-
-    db = DBWrapper()
-    if not db.conn:
-        console.print("[error]Cannot proceed without a database connection.[/error]")
+# ==========================================
+# 5. ORCHESTRATOR & REPORT
+# ==========================================
+def main():
+    console.rule("[bold cyan]KitchenOps Auto-Tagger (API Edition)[/bold cyan]")
+    
+    if not API_TOKEN:
+        console.print("[error]No API_TOKEN found in config.env! Cannot proceed.[/error]")
         sys.exit(1)
 
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    start_time = time.time()
+    
+    summaries = fetch_all_summaries(headers)
+    total = len(summaries)
+    if total == 0:
+        console.print("[warning]No recipes found on the server.[/warning]")
+        sys.exit(0)
+
+    updated_count = 0
+    cuisine_counts = {c: 0 for c in CUISINE_FINGERPRINTS.keys()}
+    untagged_count = 0
+    
     try:
-        start_time = time.time()
-        gid = get_group_id(db)
-        if not gid:
-            console.print("[error]Group ID not found. DB empty or connection failed.[/error]")
-            return
-        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console
+        ) as progress:
+            task = progress.add_task(f"Tagging {total} recipes...", total=total)
+            
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = {executor.submit(process_single_recipe, s, headers): s for s in summaries}
+                
+                for future in as_completed(futures):
+                    res = future.result()
+                    
+                    if res["tags_added"] or res["cats_added"] or res["tools_added"]:
+                        updated_count += 1
+                        
+                    if not res["tags_added"] and not futures[future].get('tags'):
+                        untagged_count += 1
 
-        phase_1_cheese(db, gid)
-        phase_2_protein(db, gid)
-        phase_3_cuisine(db, gid)
-        phase_4_text(db, gid)
-        phase_5_tools(db, gid)
-        phase_6_report(db)
-
-        elapsed = time.time() - start_time
-        console.print(f"\n⏱️  Elapsed: {format_elapsed(elapsed)}")
-        logger.info(f"Complete | Elapsed: {format_elapsed(elapsed)}")
-
+                    for tag in res["tags_added"]:
+                        if tag in cuisine_counts:
+                            cuisine_counts[tag] += 1
+                            
+                    progress.update(task, advance=1, description=f"Updated: {updated_count} | Total: {total}")
     except KeyboardInterrupt:
-        console.print("\n[warning]Interrupted by user. Closing database connection...[/warning]")
-    except Exception as e:
-        console.print_exception(show_locals=True)
-    finally:
-        db.close()
-        console.rule("[bold green]Complete[/bold green]")
+        executor.shutdown(wait=False, cancel_futures=True)
+        console.print("\n[warning]🛑 Interrupted by user during tagging. Shutting down cleanly...[/warning]")
+        sys.exit(1)
 
+    # Final Report Output
+    console.print("\n")
+    table = Table(title="Cuisine Market Share (New Additions)")
+    table.add_column("Cuisine", style="cyan")
+    table.add_column("Added", style="green", justify="right")
+    
+    for cuisine, count in sorted(cuisine_counts.items(), key=lambda x: x[1], reverse=True):
+        if count > 0:
+            table.add_row(cuisine, str(count))
+            
+    if table.row_count > 0:
+        console.print(table)
+        
+    console.print(f"\n[bold red]Untagged Recipes Left (Approx):[/bold red] {untagged_count}")
+
+    elapsed = time.time() - start_time
+    console.print(f"\n⏱️  Elapsed: {format_elapsed(elapsed)}")
+    logger.info(f"Complete | Updated: {updated_count} | Elapsed: {format_elapsed(elapsed)}")
+    console.rule("[bold green]Complete[/bold green]")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        console.print("\n[warning]🛑 Script interrupted by user. Exiting cleanly...[/warning]")
+        sys.exit(1)

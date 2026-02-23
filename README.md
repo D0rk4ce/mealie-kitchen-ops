@@ -13,17 +13,15 @@ KitchenOps is a production-ready set of maintenance tools for [Mealie](https://m
 
 | Tool | Script | Method | Complexity | Speed | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-- **🧹 Auto-Cleaner:** Removes junk recipes, broken content, and listicles.
-- **🏷️ Auto-Tagger:** Tags recipes by cuisine, protein, cheese, etc. (Direct DB Access).
-- **🔧 Batch Parser:** Fixes unparsed ingredients using Mealie's NLP engine.
+- **🧹 Auto-Cleaner:** Removes junk recipes, broken content, and listicles. (API)
+- **🏷️ Auto-Tagger:** Tags recipes by cuisine, protein, cheese, etc. (API)
+- **🔧 Batch Parser:** Fixes unparsed ingredients using Mealie's NLP engine. (API)
 - **⚡ DB Accelerator:** 
   - Massive speedup for finding unparsed recipes (~20m → <1s)
   - Instant library scanning for Cleaner (~7h → <1s)
-  - **Works with configured Postgres OR SQLite (Read-Only)**
+  - **Optional:** Works with configured Postgres OR SQLite (Read-Only)
 - **🛡️ Safety First:**
   - **Dry Run** by default.
-  - **Tagger Safety:** Auto-stops/starts Mealie to prevent SQLite corruption.
-  - **Liveness Check:** Ensures Mealie is offline before DB writes.
 - **✨ Setup Wizard:** Interactive CLI guides you through first-run configuration.
 - **🔄 Smart Workflow:** "Run All" command handles the entire pipeline in one go.
 
@@ -51,9 +49,9 @@ KitchenOps is configured via environment variables (for connection details) and 
 | `PARSER_WORKERS` | `2` | Number of concurrent parsing threads. |
 | `CLEANER_WORKERS` | `2` | Number of concurrent integrity-check threads. |
 
-#### 🔴 Database Settings (Accelerator & Tagger)
+#### 🔴 Database Settings (Accelerator Mode)
 
-> **Required for Tagger**. Optional but recommended for Parser/Cleaner (Postgres only).
+> **Optional.** Enables "Accelerator Mode" for Parser and Cleaner. (Supports Postgres & SQLite in Read-Only mode).
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -124,30 +122,17 @@ podman run -it --rm \
 
 ---
 
-## 🗄️ Database Setup (Accelerator & Tagger)
+## 🗄️ Database Setup (Accelerator Mode)
 
 > [!TIP]
-> **Skip this section** if you are only using the **Parser** or **Cleaner**. Those tools use the API and do not need direct database access.
+> **Optional:** Database configuration is strictly optional. All tools natively use the Mealie API.
 
-KitchenOps uses **direct SQL** to achieve blazing speed.
-> *   **Tagger:** Required (1000s recipes/min). Works with SQLite or Postgres.
-> *   **Parser/Cleaner:** Optional (Enables "Accelerator Mode"). **Postgres Only**.
+However, configuring a read-only database connection enables **Accelerator Mode** for the Parser and Cleaner, leveraging **direct SQL** to instantly scan massive libraries rather than paginating slowly through the API.
+> *   **Parser/Cleaner:** Optional (Enables "Accelerator Mode"). **Works with Postgres OR SQLite**.
 
-### 📂 SQLite (Default)
+### 📂 SQLite
 
-> [!IMPORTANT]
-> **SQLite Safety:** The Tagger writes to the database file. To prevent corruption, Mealie must be stopped during tagging.
-> 
-> **KitchenOps handles this automatically!**
-> When you run the Tagger (or "Run All"), the script will:
-> 1. Detect if Mealie is running.
-> 2. Offer to stop it automatically.
-> 3. Run the tools safely.
-> 4. Restart Mealie for you.
->
-> You don't need to manually stop containers anymore. 🚀
-
-### 🐘 Postgres (Advanced)
+Mount your `mealie.db` file in `docker-compose.yml`. KitchenOps connects in read-only mode to fetch recipe candidates instantly. No need to stop the Mealie container!
 
 ---
 
@@ -206,9 +191,8 @@ export $(grep -v '^#' .env | xargs) && python3 kitchen_ops_tagger.py
 | Problem | Solution |
 | :--- | :--- |
 | `FATAL: Group ID not found` | Database is empty or connection failed. Verify credentials and that Mealie has been used at least once. |
-| `MEALIE_API_TOKEN is not set` | The Parser and Cleaner require an API token. Generate one in Mealie → User Profile → API Tokens. |
+| `MEALIE_API_TOKEN is not set` | All tools require an API token. Generate one in Mealie → User Profile → API Tokens. |
 | `connection refused` (Postgres) | Check `pg_hba.conf` and `postgresql.conf` on the DB server. Ensure the port is open in your firewall. |
-| `database is locked` (SQLite) | Mealie is still running. Stop it first: `docker stop mealie` |
 | `Failed to load config/tagging.yaml` | Ensure you are running the script from the project root or that the `config/` directory is mounted correctly in Docker. |
 | `Permission denied` (Podman) | SELinux is blocking access. ensure you use the `:z` suffix on your volume mounts (e.g. `-v ./data:/app/data:z`). |
 
