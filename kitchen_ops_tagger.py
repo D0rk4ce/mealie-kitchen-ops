@@ -148,7 +148,8 @@ def load_environment():
 load_environment()
 
 MEALIE_URL = os.getenv("MEALIE_URL", "http://localhost:9000").rstrip('/')
-API_TOKEN = os.getenv("API_TOKEN")
+# API Token configuration
+API_TOKEN = os.getenv("MEALIE_API_TOKEN")
 DRY_RUN = os.getenv("DRY_RUN", "True").lower() == "true"
 MIN_CUISINE_MATCHES = 3
 
