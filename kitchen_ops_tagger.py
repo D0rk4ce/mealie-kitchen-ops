@@ -11,6 +11,7 @@ import logging
 import sys
 import time
 import yaml
+import signal
 from datetime import datetime
 from typing import Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -152,6 +153,19 @@ MEALIE_URL = os.getenv("MEALIE_URL", "http://localhost:9000").rstrip('/')
 API_TOKEN = os.getenv("MEALIE_API_TOKEN")
 DRY_RUN = os.getenv("DRY_RUN", "True").lower() == "true"
 MIN_CUISINE_MATCHES = 3
+SHUTDOWN_REQUESTED = False
+
+# Signal handler for graceful termination
+def signal_handler(sig, frame):
+    global SHUTDOWN_REQUESTED
+    if not SHUTDOWN_REQUESTED:
+        console.print("\n[error]🛑 Graceful shutdown requested. Stopping threads...[/error]")
+        SHUTDOWN_REQUESTED = True
+    else:
+        console.print("\n[error]🛑 Force quitting...[/error]")
+        sys.exit(1)
+
+signal.signal(signal.SIGINT, signal_handler)
 
 try:
     MAX_WORKERS = int(os.getenv("MAX_WORKERS", "4")) 
@@ -350,6 +364,9 @@ def main():
                         
                     res = future.result()
                     
+                    if res.get("shutdown_requested"):
+                        continue
+                        
                     if res["tags_added"] or res["cats_added"] or res["tools_added"]:
                         updated_count += 1
                         
