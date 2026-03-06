@@ -306,8 +306,10 @@ def process_single_recipe(summary: Dict, headers: Dict):
             result["tools_added"] = list(current_tools - original_tools)
 
         if updates and not DRY_RUN:
-            requests.patch(f"{MEALIE_URL}/api/recipes/{slug}", json=updates, headers=headers, timeout=15)
-            
+            patch_resp = requests.patch(f"{MEALIE_URL}/api/recipes/{slug}", json=updates, headers=headers, timeout=15)
+            if not patch_resp.ok:
+                raise Exception(f"API Rejected Patch ({patch_resp.status_code}): {patch_resp.text}")
+
         return result
     except Exception as e:
         logger.error(f"Error processing {slug}: {e}")
